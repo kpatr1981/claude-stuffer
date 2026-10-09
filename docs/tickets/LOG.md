@@ -5,3 +5,5 @@
 | 2026-10-10 | claude-stuffer-0-1-0 | senior (Opus); tests by qa (Sonnet) | none on the ladder; reviewer FAIL twice (EOF confirmation bypass; dangling symlink write-through), both fixed by senior | reviewer FAIL, FAIL, then fixes verified by architect; released as v0.1.0 |
 | 2026-10-10 | claude-stuffer-0-2-0 | senior (Opus); tests by qa (Sonnet) | reviewer FAIL twice (embedded bench carried a stale marker line; slug/role fullmatch; symlinked docs/tickets), fixed by senior | reviewer PASS on third pass; released as v0.2.0 |
 | 2026-10-10 | macos-install | mid (Sonnet); docs only, no qa | none | reviewer PASS first pass (note: /tmp download path, non-blocking) |
+| 2026-10-10 | agents-wizard-removed | junior (Haiku); docs plus one string and its test, no qa/reviewer | none | junior DONE, 88 tests OK, commit ee28a04 pushed; architect re-pushed the live Ghost article |
+| 2026-10-10 | cost-rule | mid (Sonnet); tests by qa (Sonnet) | none | reviewer PASS first pass; version 0.2.1; global CLAUDE.md block refreshed with `init`; article republished |
