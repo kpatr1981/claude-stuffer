@@ -93,7 +93,7 @@ The tool looks at the folder first and uses what it finds as defaults: languages
 6. Custom roles: a name, what it does, what it must know, and a level.
 7. The list of files it will write, and one confirmation.
 
-It writes one file per role under `.claude/agents/` and a `## Team` block in the project's `CLAUDE.md`. Each role file carries the project description, the documents to read first, the stack, the test command, the role's rules, and the same two-attempt failure protocol as the bench. Read-only roles (`security-reviewer`) get a restricted tool list and never modify a file.
+It writes one file per role under `.claude/agents/` and a `## Team` block in the project's `CLAUDE.md`. Each role file carries the project description, the documents to read first, the stack, the test command, the role's rules, and the same two-attempt failure protocol as the bench. Every role gets a fixed tool list: writers get Bash, Read, Edit, Write, Grep and Glob, and read-only roles (`security-reviewer`) drop Edit and Write and never modify a file. An agent with no tool list carries every tool schema, about 20k tokens, on every step.
 
 Other commands:
 

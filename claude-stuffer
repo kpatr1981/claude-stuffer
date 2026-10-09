@@ -22,7 +22,7 @@ import os
 import re
 import sys
 
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 
 EXIT_OK, EXIT_ABORT, EXIT_USAGE = 0, 1, 2
 
@@ -174,6 +174,9 @@ FAILURE_PARAGRAPH = (
     "changes in place and report what failed (actual output), what you tried, your hypothesis, "
     "whether it looks mechanical or a logic problem, and which files are modified.")
 REPORT_LINE = "Report on success: what changed, what you ran and its output, anything left open."
+WRITER_TOOLS = "Bash, Read, Edit, Write, Grep, Glob"
+OUTPUT_LINE = ("Keep long output out of your transcript: send test runs, builds and logs to a file and read "
+               "back only the tail or the failing part. Everything you print is re-sent on every later step.")
 NO_TESTS_LINE = ("No test suite here: verify the way the spec says (run it, hit it, check the output) "
                  "and include that output in your report.")
 PRODUCTION_LINE = ("Production: this project touches live systems. Change nothing the spec does not name; "
@@ -226,12 +229,15 @@ BENCH = {
 name: senior
 description: Senior engineer (Opus). Builds features from a finished spec, changes across several files, tricky logic. Use for all substantial code writing.
 model: opus
+tools: Bash, Read, Edit, Write, Grep, Glob
 ---
 You are the senior engineer. Implement the spec you are given, exactly and completely. Write tests for what you build and run the full relevant test suite. If the project has no test suite, verify the way the spec says (run the script, hit the endpoint, check the output) and include that output in your report.
 
 The handoff names a ticket folder (docs/tickets/<slug>/). Read spec.md and tests.md there first, and build.md if a lower level already tried. Write your full report to build.md in that folder (append, with a heading naming your level) and reply in chat with one line: the verdict and the path. Scope guard: if the work needs a file the spec does not list, stop and report instead of widening the change.
 
 If you were handed a failure report from a more junior level, start from its hypothesis and the state it describes. Do not redo work it already did.
+
+Keep long output out of your transcript: send test runs, builds and logs to a file and read back only the tail or the failing part. Everything you print is re-sent on every later step.
 
 If tests fail: analyze the failure and fix it. You get two attempts. If tests still fail after the second, stop. Leave your changes in place and report:
 1. What failed: test names and the actual error output.
@@ -246,12 +252,15 @@ Report format on success: what changed, what tests ran and their result, anythin
 name: mid
 description: Mid-level engineer (Sonnet). Well-defined contained changes: a bug with a clear repro, a single-function change, a refactor covered by tests, docs with substance. Also first escalation step for failures from `junior`.
 model: sonnet
+tools: Bash, Read, Edit, Write, Grep, Glob
 ---
 You are the mid-level engineer. Do the task in the spec and nothing beyond it. Run the relevant tests.
 
 The handoff names a ticket folder (docs/tickets/<slug>/). Read spec.md and tests.md there first, and build.md if a lower level already tried. Write your full report to build.md in that folder (append, with a heading naming your level) and reply in chat with one line: the verdict and the path. Scope guard: if the work needs a file the spec does not list, stop and report instead of widening the change.
 
 If you were handed a failure report from the junior level, start from its hypothesis and the state it describes. Do not redo work it already did.
+
+Keep long output out of your transcript: send test runs, builds and logs to a file and read back only the tail or the failing part. Everything you print is re-sent on every later step.
 
 If tests fail: analyze the failure and fix it. You get two attempts. If tests still fail after the second, stop. Leave your changes in place and report:
 1. What failed: test names and the actual error output.
@@ -268,10 +277,13 @@ Report format on success: what changed, what tests ran and their result, anythin
 name: junior
 description: Junior engineer (Haiku). Mechanical chores: renames, formatting, moving files, README/PENDING.md updates, git housekeeping, running a command and reporting output.
 model: haiku
+tools: Bash, Read, Edit, Write, Grep, Glob
 ---
 You are the junior engineer. Do the small task asked, nothing more. A ticket may batch several chores; do them all, one commit-sized change each, and report each. If the task says to run tests, run them.
 
 The handoff names a ticket folder (docs/tickets/<slug>/). Read spec.md and tests.md there first, and build.md if a lower level already tried. Write your full report to build.md in that folder (append, with a heading naming your level) and reply in chat with one line: the verdict and the path. Scope guard: if the work needs a file the spec does not list, stop and report instead of widening the change.
+
+Keep long output out of your transcript: send test runs, builds and logs to a file and read back only the tail or the failing part. Everything you print is re-sent on every later step.
 
 If tests fail: look at the failure and try to fix it. You get two attempts. If tests still fail after the second, stop. Leave your changes in place and report:
 1. What failed: test names and the actual error output.
@@ -307,6 +319,7 @@ Report: PASS or FAIL on the first line. Then the reasons, each tied to a file an
 name: qa
 description: QA engineer (Sonnet, mid level). Writes the tests from a finished spec before anyone builds, and runs them to confirm they fail for the right reason.
 model: sonnet
+tools: Bash, Read, Edit, Write, Grep, Glob
 ---
 You are the QA engineer. You are given a ticket folder (docs/tickets/<slug>/); read spec.md and scout.md there. Write your report to tests.md in that folder and reply in chat with one line: the verdict and the path.
 
@@ -317,6 +330,7 @@ Rules:
 - Run the tests. They must fail, and fail because the feature is missing, not because the test is broken. Include the failure output in your report.
 - If the spec is too vague to write a test for, stop and say exactly what is missing. Do not invent requirements.
 - If the project has no test framework, say so and stop. Setting one up is a separate task for the architect to spec.
+- Keep long output out of your transcript: send test runs to a file and read back only the tail or the failing part. Everything you print is re-sent on every later step.
 
 Report: the test files you added, what each test checks, and the current failure output.
 """,
@@ -390,6 +404,8 @@ RULES = """\
     (`senior`, `reviewer`) only where judgement is needed. The ladder is for features: a change
     smaller than its spec goes to one `junior` without qa or reviewer, or the architect makes it
     in place, because each handoff is a cold start that re-reads the same files.
+    Start a builder early in a session, never near its end: a session that closes mid-run pays for the
+    spawn twice. Agents carry only the tools they need; the full tool catalogue is 20k tokens a step.
 - Handoffs carry context in files, not in chat. One folder per ticket: `docs/tickets/<slug>/`
   with `spec.md` (architect), `scout.md`, `tests.md` (qa), `build.md` (builder), `review.md`
   (reviewer). Each handoff names the folder and the file to read; each report is written to the
@@ -683,8 +699,7 @@ def render_agent(plan, role):
             "description: %s for %s (%s, %s; level set per task by the architect). %s." % (
                 capitalized(title), plan["name"], level, model, capitalized(sentence(role["line"]))),
             "model: " + model]
-    if role.get("tools"):
-        head.append("tools: " + role["tools"])
+    head.append("tools: " + (role.get("tools") or WRITER_TOOLS))
     head.append("---")
 
     knows = role.get("knows") or []
@@ -712,7 +727,7 @@ def render_agent(plan, role):
     if role.get("tools"):
         body += [READ_ONLY_FAILURE, READ_ONLY_REPORT]
     else:
-        body += [FAILURE_PARAGRAPH, REPORT_LINE]
+        body += [OUTPUT_LINE, FAILURE_PARAGRAPH, REPORT_LINE]
     return "\n".join(head + body) + "\n"
 
 

@@ -252,10 +252,10 @@ class TestCli(Base):
             for role in roles:
                 self.assertIn(role, r.stdout)
 
-    def test_version_prints_0_2_2(self):
+    def test_version_prints_0_2_3(self):
         r = run(["--version"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("0.2.2", r.stdout + r.stderr)
+        self.assertIn("0.2.3", r.stdout + r.stderr)
 
     def test_help_mentions_ticket(self):
         r = run(["--help"])
@@ -359,7 +359,14 @@ class TestGeneration(Base):
         self.assertIn("opus", fm["description"])
         self.assertIn("logsieve", fm["description"])
         self.assertEqual(fm["model"], "opus")
-        self.assertNotIn("tools", fm)
+        self.assertEqual(fm["tools"], "Bash, Read, Edit, Write, Grep, Glob")
+
+    def test_project_writer_role_has_output_paragraph(self):
+        self.go_project()
+        self.staff(self.full_answers())
+        for name in ("cli-developer", "ksh-engineer"):
+            self.assertIn("Keep long output out of your transcript",
+                          read(agent_path(self.project, name)), name)
 
     def test_agent_body_has_marker_docs_stack_tests_and_failure_protocol(self):
         self.go_project()
@@ -489,6 +496,7 @@ class TestVariants(Base):
         self.assertEqual(fm["model"], "opus")
         self.assertIn("You never modify a file", text)
         self.assertNotIn("two attempts", text)
+        self.assertNotIn("Keep long output out of your transcript", text)
         self.assertIn("`security-reviewer`", read(os.path.join(self.project, "CLAUDE.md")))
 
 
@@ -508,6 +516,13 @@ class TestInit(Base):
              ("reviewer", "opus"), ("qa", "sonnet"), ("scout", "haiku"),
              ("pm", "sonnet")]
 
+    WRITER = "Bash, Read, Edit, Write, Grep, Glob"
+    BENCH_TOOLS = {"senior": WRITER, "mid": WRITER, "junior": WRITER, "qa": WRITER,
+                   "reviewer": "Read, Grep, Glob, Bash, Write",
+                   "scout": "Read, Grep, Glob, Write, Edit",
+                   "pm": "Read, Grep, Glob, Write, Edit"}
+    OUTPUT = "Keep long output out of your transcript"
+
     def init(self, *extra):
         return run(["init"] + list(extra), cwd=self.tmp, home=self.home)
 
@@ -520,10 +535,17 @@ class TestInit(Base):
         for name, model in self.BENCH:
             fm = frontmatter(read(os.path.join(self.agents_dir(), name + ".md")))
             self.assertEqual(fm["model"], model, name)
-            if name in ("reviewer", "scout", "pm"):
-                self.assertIn("tools", fm, name)
-            else:
-                self.assertNotIn("tools", fm, name)
+            self.assertIn("tools", fm, name)
+            self.assertEqual(fm["tools"], self.BENCH_TOOLS[name], name)
+
+    def test_init_senior_mid_junior_qa_bodies_have_output_paragraph(self):
+        self.init()
+        for name in ("senior", "mid", "junior", "qa"):
+            text = read(os.path.join(self.agents_dir(), name + ".md"))
+            self.assertIn(self.OUTPUT, text, name)
+
+    def test_init_rules_block_says_start_builder_early(self):
+        self.assertIn("Start a builder early in a session", self._rules_block())
 
     def test_init_writes_rules_block_in_global_claude_md(self):
         self.init()
