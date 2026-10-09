@@ -252,10 +252,10 @@ class TestCli(Base):
             for role in roles:
                 self.assertIn(role, r.stdout)
 
-    def test_version_prints_0_2_0(self):
+    def test_version_prints_0_2_1(self):
         r = run(["--version"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("0.2.0", r.stdout + r.stderr)
+        self.assertIn("0.2.1", r.stdout + r.stderr)
 
     def test_help_mentions_ticket(self):
         r = run(["--help"])
@@ -533,6 +533,27 @@ class TestInit(Base):
         self.assertEqual(text.count(RULES_END), 1)
         block = text.split(RULES_START)[1].split(RULES_END)[0]
         self.assertIn("claude-stuffer", block)
+
+    def _rules_block(self):
+        self.init()
+        text = read(os.path.join(self.home, ".claude", "CLAUDE.md"))
+        return text.split(RULES_START)[1].split(RULES_END)[0]
+
+    def test_init_rules_block_contains_cost_rule_and_compact(self):
+        block = self._rules_block()
+        self.assertIn("- Cost:", block)
+        self.assertIn("`/compact`", block)
+
+    def test_init_rules_cost_bullet_after_parallel_work_before_handoffs(self):
+        block = self._rules_block()
+        seq = block.find("are always sequential.")
+        cost = block.find("- Cost:")
+        handoffs = block.find("- Handoffs carry context")
+        self.assertNotEqual(seq, -1)
+        self.assertNotEqual(handoffs, -1)
+        self.assertNotEqual(cost, -1, "no Cost bullet in rules block")
+        self.assertLess(seq, cost)
+        self.assertLess(cost, handoffs)
 
     def test_init_twice_keeps_seven_files_and_one_block(self):
         self.init()

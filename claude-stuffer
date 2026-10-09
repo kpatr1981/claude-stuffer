@@ -22,7 +22,7 @@ import os
 import re
 import sys
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 EXIT_OK, EXIT_ABORT, EXIT_USAGE = 0, 1, 2
 
@@ -376,6 +376,15 @@ RULES = """\
     `senior` builds this one, `reviewer` and a security reviewer on the same diff). Never two
     writers on overlapping files: serialize them or give each a git worktree. Ladder steps
     (qa → builder → reviewer, and every escalation) are always sequential.
+  - Cost: a subagent costs the same alone or beside another; parallel saves time, not tokens.
+    What costs is the number of spawns (each starts cold), the model each one runs on, and the
+    length of every transcript, because each tool call re-sends the whole transcript so far.
+    Agents do not pay for talking to each other; handoffs are one prompt in, one line back.
+    So: one scout per ticket with three or four questions, not one broad sweep; `/compact` once
+    a ticket closes so the next task starts from the ticket folder, not the conversation; Opus
+    (`senior`, `reviewer`) only where judgement is needed. The ladder is for features: a change
+    smaller than its spec goes to one `junior` without qa or reviewer, or the architect makes it
+    in place, because each handoff is a cold start that re-reads the same files.
 - Handoffs carry context in files, not in chat. One folder per ticket: `docs/tickets/<slug>/`
   with `spec.md` (architect), `scout.md`, `tests.md` (qa), `build.md` (builder), `review.md`
   (reviewer). Each handoff names the folder and the file to read; each report is written to the

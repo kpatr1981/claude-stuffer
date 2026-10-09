@@ -112,7 +112,7 @@ Re-running in the same folder is how you revisit the team. Generated files you h
 
 Subagents share the working tree, so context passes through files, not chat. `claude-stuffer ticket <slug>` creates `docs/tickets/<slug>/spec.md` with the four parts of a spec, plus What and Notes, as headings, plus `docs/tickets/LOG.md` (one line per finished ticket) and `docs/tickets/FACTS.md` (durable facts the scout appends) if they are missing. Each agent writes its report to the ticket folder (`scout.md`, `tests.md`, `build.md`, `review.md`) and replies in chat with one line: verdict and path. The bench prompts installed by `init` already say so.
 
-Also in the rule: a builder that needs a file the spec does not list stops instead of widening the change; several junior chores in one project go into one ticket; the `pm` role keeps `PENDING.md` and `LOG.md` so the architect does not.
+Also in the rule: a builder that needs a file the spec does not list stops instead of widening the change; several junior chores in one project go into one ticket; the `pm` role keeps `PENDING.md` and `LOG.md` so the architect does not. And a cost note: parallel saves time, not tokens, because each agent pays for its own transcript on every tool call, so keep scout questions to three or four per ticket, `/compact` once a ticket closes, and keep the ladder for features: a change smaller than its spec goes to one junior or is made in place.
 
 ## Example: logsieve
 
