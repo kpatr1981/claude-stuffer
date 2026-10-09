@@ -33,6 +33,17 @@ Rules the architect follows, installed by `init`:
 - **Escalation.** The author of the code gets the first look at a failure, two attempts. Then the architect hands the spec plus the failure report one level up: junior, mid, senior, architect. Never skip a level, except when the junior's report says the failure is in logic, not mechanics. Never resend to the same level.
 - **Staffing.** A role is a prompt with domain knowledge, not a level. A role exists only if the backlog has tasks for it. Project roles live in the project, the bench lives in `~/.claude`.
 
+## What writes where
+
+| Command | Writes to | Scope |
+|---|---|---|
+| `claude-stuffer init` | `~/.claude/agents/` (the seven bench files) and a marked block in `~/.claude/CLAUDE.md` | global, once per machine |
+| `claude-stuffer` | `<project>/.claude/agents/` and a marked block in `<project>/CLAUDE.md` | that folder only |
+| `claude-stuffer ticket <slug>` | `<project>/docs/tickets/` | that folder only |
+| `claude-stuffer show` | nothing | reads that folder |
+
+The per-project commands never touch `~/.claude`, and `init` never touches a project. Skipping `init` still works: the project command only warns that the bench is missing.
+
 ## Install
 
 ```bash
