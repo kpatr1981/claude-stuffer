@@ -251,8 +251,8 @@ LICENSE                 MIT, Copyright (c) 2026 Konstantinos Patronas <kpatronas
 README install section:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/kpatr1981/claude-stuffer/main/claude-stuffer -o /usr/local/bin/claude-stuffer
-chmod +x /usr/local/bin/claude-stuffer
+curl -fsSL https://raw.githubusercontent.com/kpatr1981/claude-stuffer/main/claude-stuffer -o /tmp/claude-stuffer
+sudo install -m 0755 /tmp/claude-stuffer /usr/local/bin/claude-stuffer
 claude-stuffer init
 cd ~/code/my-project && claude-stuffer
 ```

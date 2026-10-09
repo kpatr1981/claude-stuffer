@@ -46,11 +46,33 @@ The per-project commands never touch `~/.claude`, and `init` never touches a pro
 
 ## Install
 
+You need Python 3.9 or newer. On macOS, if `python3 --version` prompts you to install developer tools, run `xcode-select --install` once.
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kpatr1981/claude-stuffer/main/claude-stuffer -o /usr/local/bin/claude-stuffer
-chmod +x /usr/local/bin/claude-stuffer
+curl -fsSL https://raw.githubusercontent.com/kpatr1981/claude-stuffer/main/claude-stuffer -o /tmp/claude-stuffer
+sudo install -m 0755 /tmp/claude-stuffer /usr/local/bin/claude-stuffer
 claude-stuffer init
 ```
+
+This works the same on macOS and Linux. `/usr/local/bin` is owned by root, so the copy needs `sudo`.
+
+Without sudo, with Homebrew installed, put it in Homebrew's bin directory, which is already on your PATH:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kpatr1981/claude-stuffer/main/claude-stuffer -o /tmp/claude-stuffer
+install -m 0755 /tmp/claude-stuffer "$(brew --prefix)/bin/claude-stuffer"
+```
+
+Or use `~/.local/bin`, which is not on the default macOS zsh PATH. Add it to `~/.zshrc` and open a new shell:
+
+```bash
+mkdir -p ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/kpatr1981/claude-stuffer/main/claude-stuffer -o /tmp/claude-stuffer
+install -m 0755 /tmp/claude-stuffer ~/.local/bin/claude-stuffer
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+Then run `claude-stuffer init`.
 
 `init` writes the seven bench agents to `~/.claude/agents/` and the routing rule into `~/.claude/CLAUDE.md`, inside a marked block so it can be updated later. Existing files are kept unless you pass `--force`. Set Fable as the default model with `"model": "claude-fable-5-1"` in `~/.claude/settings.json`, or `/model claude-fable-5-1` in a session.
 
