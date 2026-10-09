@@ -12,7 +12,7 @@ Claude's models map onto seniority levels. Each costs a different amount and is 
 
 | Level | Model | Does |
 |-------|-------|------|
-| Architect and engineering lead | Fable (the main session) | Talks to you, writes specs, routes work, reads verdicts, decides who is on the team. Does not write code unless escalation reaches it. |
+| Architect and engineering lead | Opus (the main session) | Talks to you, writes specs, routes work, reads verdicts, decides who is on the team. Does not write code unless escalation reaches it. |
 | Senior | Opus | Features, multi-file changes, tricky logic. |
 | Mid | Sonnet | Well-defined contained changes, bug fixes with a repro, docs with substance. |
 | Junior | Haiku | Renames, formatting, moving files, git housekeeping, running a command. |
@@ -74,7 +74,7 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 
 Then run `claude-stuffer init`.
 
-`init` writes the seven bench agents to `~/.claude/agents/` and the routing rule into `~/.claude/CLAUDE.md`, inside a marked block so it can be updated later. Existing files are kept unless you pass `--force`. Set Fable as the default model with `"model": "claude-fable-5-1"` in `~/.claude/settings.json`, or `/model claude-fable-5-1` in a session.
+`init` writes the seven bench agents to `~/.claude/agents/` and the routing rule into `~/.claude/CLAUDE.md`, inside a marked block so it can be updated later. Existing files are kept unless you pass `--force`. Set Opus as the default model with `"model": "claude-opus-5-5"` in `~/.claude/settings.json`, or `/model claude-opus-5-5` in a session.
 
 ## Staff a project
 

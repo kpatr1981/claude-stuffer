@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """claude-stuffer: staff a Claude Code project with a team of subagents.
 
-Team by seniority: the main session is the architect (Fable); the global bench
+Team by seniority: the main session is the architect (Opus); the global bench
 (senior/Opus, mid/Sonnet, junior/Haiku, plus reviewer, qa, scout and pm) lives in
 ~/.claude/agents; each project gets its own domain roles in .claude/agents.
 
@@ -22,7 +22,7 @@ import os
 import re
 import sys
 
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 
 EXIT_OK, EXIT_ABORT, EXIT_USAGE = 0, 1, 2
 
@@ -182,8 +182,8 @@ NO_TESTS_LINE = ("No test suite here: verify the way the spec says (run it, hit 
 PRODUCTION_LINE = ("Production: this project touches live systems. Change nothing the spec does not name; "
                    "back up first; one change at a time; verify; state the rollback.")
 NO_TESTS_NOTICE = "No tests: code changes will be routed to the senior and every spec must say how to verify."
-INIT_HINT = ('Default model: set `"model": "claude-fable-5-1"` in ~/.claude/settings.json '
-             "or run /model claude-fable-5-1 in a session.\n"
+INIT_HINT = ('Default model: set `"model": "claude-opus-5-5"` in ~/.claude/settings.json '
+             "or run /model claude-opus-5-5 in a session.\n"
              "Check with claude-stuffer show, or start a new session; agents are loaded at startup.")
 
 
@@ -373,7 +373,7 @@ Report: what you changed, file by file, and the questions that need the user.
 
 # Routing rule for ~/.claude/CLAUDE.md (written between the rules markers).
 RULES = """\
-- Team by seniority. The main session is the architect (Fable): it designs, writes specs,
+- Team by seniority. The main session is the architect (Opus): it designs, writes specs,
   routes work and reviews reports. It does not write code unless escalation reaches it.
   - Route each task to the most junior agent that can do it reliably, with the full spec:
     `junior` (Haiku) for mechanical chores, `mid` (Sonnet) for well-defined contained
@@ -431,7 +431,7 @@ RULES = """\
   - `reviewer` (Opus, no code edits, writes only review.md): checks every `mid` and `senior` change against the spec
     and tests before the architect accepts it. A reviewer FAIL that says "mechanical" goes
     back to the author; "logic" goes one level up. `junior` chores skip `qa` and `reviewer`.
-- Staffing. The architect (Fable) is also the engineering lead: it decides the team per project.
+- Staffing. The architect (Opus) is also the engineering lead: it decides the team per project.
   - When a project starts, or has no `.claude/agents/` of its own, run `claude-stuffer`
     in its folder; it asks about the project and writes the team. Confirm the proposed
     roles with the user before writing.

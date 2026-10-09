@@ -252,10 +252,10 @@ class TestCli(Base):
             for role in roles:
                 self.assertIn(role, r.stdout)
 
-    def test_version_prints_0_2_4(self):
+    def test_version_prints_0_2_5(self):
         r = run(["--version"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("0.2.4", r.stdout + r.stderr)
+        self.assertIn("0.2.5", r.stdout + r.stderr)
 
     def test_help_mentions_ticket(self):
         r = run(["--help"])
