@@ -1,0 +1,1117 @@
+#!/usr/bin/env python3
+"""claude-stuffer: staff a Claude Code project with a team of subagents.
+
+Team by seniority: the main session is the architect (Fable); the global bench
+(senior/Opus, mid/Sonnet, junior/Haiku, plus reviewer, qa and scout) lives in
+~/.claude/agents; each project gets its own domain roles in .claude/agents.
+
+  claude-stuffer            interview in the current folder, then write the team
+  claude-stuffer init       install or update the global bench in ~/.claude
+  claude-stuffer show       print the project's current team
+
+Standard library only. Never deletes a file; never overwrites a file it did not
+generate. See https://github.com/kpatr1981/claude-stuffer
+"""
+
+import argparse
+import datetime
+import fnmatch
+import json
+import os
+import re
+import sys
+
+VERSION = "0.1.0"
+
+EXIT_OK, EXIT_ABORT, EXIT_USAGE = 0, 1, 2
+
+TEAM_START, TEAM_END = "<!-- claude-stuffer:team -->", "<!-- /claude-stuffer:team -->"
+RULES_START, RULES_END = "<!-- claude-stuffer:rules -->", "<!-- /claude-stuffer:rules -->"
+
+LEVEL_MODEL = {"senior": "opus", "mid": "sonnet", "junior": "haiku"}
+MODEL_LEVEL = {model: level for level, model in LEVEL_MODEL.items()}
+LEVELS = ["senior", "mid", "junior"]
+ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
+
+IGNORED_DIRS = {".git", "node_modules", "venv", ".venv", "__pycache__", "build", "dist"}
+MAX_FILES = 50000
+
+BENCH_NAMES = ["senior", "mid", "junior", "reviewer", "qa", "scout"]
+
+
+class UsageError(Exception):
+    """Bad usage or bad input: exit 2."""
+
+
+class Abort(Exception):
+    """User abort or nothing to do: exit 1."""
+
+
+# --------------------------------------------------------------------------
+# Catalog
+# --------------------------------------------------------------------------
+
+def _role(level, line, rules, tools=None):
+    return {"level": level, "line": line, "rules": rules, "tools": tools}
+
+
+ROLES = {
+    "cli-developer": _role(
+        "senior", "Builds the command-line tool: flags, help text, exit codes and the non-interactive mode",
+        ["Every flag appears in `--help`.",
+         "Exit codes are stable and documented.",
+         "Everything the interactive mode does has a non-interactive mode.",
+         "Never a second code path for the same operation."]),
+    "backend-developer": _role(
+        "senior", "Builds the server side: endpoints, validation, error handling and their tests",
+        ["Every endpoint has a test.",
+         "Input is validated at the boundary.",
+         "Errors are typed, not strings."]),
+    "db-engineer": _role(
+        "mid", "Owns the database: schema, migrations and query performance",
+        ["Schema changes go only through reversible migrations.",
+         "Every query comes with the question it answers and its plan on realistic data."]),
+    "frontend-developer": _role(
+        "mid", "Builds the user interface in code: components, styles, accessibility and their tests",
+        ["Components are small and tested.",
+         "No inline styles outside the design system.",
+         "Accessibility (contrast, keyboard, labels) is part of done."]),
+    "ui-designer": _role(
+        "mid", "Designs screens and their states as text and code, and writes briefs for raster assets",
+        ["Screens are specified as text and code (components, SVG).",
+         "States (empty, loading, error) are always specified.",
+         "You cannot paint: write briefs for raster assets."]),
+    "app-developer": _role(
+        "senior", "Builds the mobile app: business logic, platform integration and permissions",
+        ["Business logic stays out of widgets so it can be unit tested.",
+         "Permissions are requested at the point of use, with a reason.",
+         "Platform folders change only when the spec names a plugin."]),
+    "game-designer": _role(
+        "senior", "Owns the game's rules, numbers and balance, and how to measure them",
+        ["Every change is stated in numbers (frames, pixels, hit points, rates) with how to measure it.",
+         "Playability claims need a solver or a scripted run.",
+         "Balance against a skilled-player baseline."]),
+    "gameplay-programmer": _role(
+        "senior", "Implements the game's rules and feel on every target within the platform's budget",
+        ["Rules are identical across every target unless the spec says otherwise.",
+         "Respect the platform's budget (memory, frame time).",
+         "Tests for the rules, scripted runs for feel."]),
+    "artist": _role(
+        "mid", "Produces art as data the build can consume, and writes briefs for what it cannot make",
+        ["Art is data the build can consume.",
+         "Palette and size constraints are respected.",
+         "You cannot paint: write briefs and judge the results."]),
+    "data-engineer": _role(
+        "senior", "Builds the loads and transformations: idempotent, versioned and checked",
+        ["Loads are idempotent and re-runnable.",
+         "The schema is versioned.",
+         "Every transformation has a row-count or checksum check."]),
+    "analyst": _role(
+        "mid", "Answers questions with queries and checked numbers",
+        ["Every query states the question it answers.",
+         "Numbers are checked against a known total before being reported.",
+         "No chart without the table behind it."]),
+    "site-ops": _role(
+        "mid", "Runs and changes servers and deployments (use senior for production changes)",
+        ["Read and diagnose freely; change only what the spec says.",
+         "Back up first: a timestamped copy, a DB dump before schema or version changes.",
+         "One change, verify, state the rollback.",
+         "Never put secrets in a report."]),
+    "library-developer": _role(
+        "senior", "Builds the library's public API, its documentation and tested examples",
+        ["The public API stays stable within a major version.",
+         "Every public symbol is documented.",
+         "Examples in the docs are tested."]),
+    "docs-writer": _role(
+        "mid", "Writes the documentation from the code, with runnable examples",
+        ["Document from the code, not from memory.",
+         "Every example is runnable.",
+         "One concept per page."]),
+    "tech-writer": _role(
+        "mid", "Writes the content: plain, direct, every command tested",
+        ["Plain, direct, problem first, no padding.",
+         "Every command shown is run before it is written.",
+         "Follow the project's style guide if one exists."]),
+    "editor": _role(
+        "senior", "Edits the content for accuracy and voice",
+        ["Edit for accuracy and voice.",
+         "Cut what does not earn its place.",
+         "List every change and why."]),
+    "security-reviewer": _role(
+        "senior", "Reviews changes for leaked secrets, trust boundaries, dependency fetching and credential permissions; read-only",
+        ["Look for secrets or tokens on a command line, in logs, or in saved configs.",
+         "Check trust boundaries and input validation.",
+         "Check dependency fetching: pinning, checksums, HTTPS.",
+         "Check file permissions on credentials."],
+        tools="Read, Grep, Glob, Bash"),
+}
+
+KINDS = ["cli", "service", "web", "mobile", "game", "data", "infra", "library", "content", "other"]
+
+KIND_ROLES = {
+    "cli": ["cli-developer"],
+    "service": ["backend-developer", "db-engineer"],
+    "web": ["frontend-developer", "backend-developer", "ui-designer"],
+    "mobile": ["app-developer", "ui-designer"],
+    "game": ["game-designer", "gameplay-programmer", "artist"],
+    "data": ["data-engineer", "analyst"],
+    "infra": ["site-ops"],
+    "library": ["library-developer", "docs-writer"],
+    "content": ["tech-writer", "editor"],
+    "other": [],
+}
+
+ADDONS = ["site-ops", "security-reviewer"]
+SECURITY_WORDS = re.compile(r"\b(auth|token|secret|login|payment|ssh|aws|api)", re.I)
+
+READ_ONLY_FAILURE = "You never modify a file. If you see a fix, describe it."
+READ_ONLY_REPORT = ("Report: PASS or FAIL on the first line, then the findings, most severe first, "
+                    "each with file, line, severity and a concrete fix.")
+FAILURE_PARAGRAPH = (
+    "If tests or checks fail: analyze and fix, two attempts. If still failing, stop, leave your "
+    "changes in place and report what failed (actual output), what you tried, your hypothesis, "
+    "whether it looks mechanical or a logic problem, and which files are modified.")
+REPORT_LINE = "Report on success: what changed, what you ran and its output, anything left open."
+NO_TESTS_LINE = ("No test suite here: verify the way the spec says (run it, hit it, check the output) "
+                 "and include that output in your report.")
+PRODUCTION_LINE = ("Production: this project touches live systems. Change nothing the spec does not name; "
+                   "back up first; one change at a time; verify; state the rollback.")
+NO_TESTS_NOTICE = "No tests: code changes will be routed to the senior and every spec must say how to verify."
+INIT_HINT = ('Default model: set `"model": "claude-fable-5-1"` in ~/.claude/settings.json '
+             "or run /model claude-fable-5-1 in a session.\n"
+             "Check with /agents in a new session.")
+
+
+# --------------------------------------------------------------------------
+# Global bench (embedded verbatim from the author's ~/.claude/agents)
+# --------------------------------------------------------------------------
+
+BENCH = {
+    "senior": """\
+---
+name: senior
+description: Senior engineer (Opus). Builds features from a finished spec, changes across several files, tricky logic. Use for all substantial code writing.
+model: opus
+---
+You are the senior engineer. Implement the spec you are given, exactly and completely. Write tests for what you build and run the full relevant test suite. If the project has no test suite, verify the way the spec says (run the script, hit the endpoint, check the output) and include that output in your report.
+
+If you were handed a failure report from a more junior level, start from its hypothesis and the state it describes. Do not redo work it already did.
+
+If tests fail: analyze the failure and fix it. You get two attempts. If tests still fail after the second, stop. Leave your changes in place and report:
+1. What failed: test names and the actual error output.
+2. What you tried: each attempt, what changed, what happened.
+3. Your hypothesis of the cause.
+4. Exactly which files are modified.
+
+Report format on success: what changed, what tests ran and their result, anything left open.
+""",
+    "mid": """\
+---
+name: mid
+description: Mid-level engineer (Sonnet). Well-defined contained changes: a bug with a clear repro, a single-function change, a refactor covered by tests, docs with substance. Also first escalation step for failures from `junior`.
+model: sonnet
+---
+You are the mid-level engineer. Do the task in the spec and nothing beyond it. Run the relevant tests.
+
+If you were handed a failure report from the junior level, start from its hypothesis and the state it describes. Do not redo work it already did.
+
+If tests fail: analyze the failure and fix it. You get two attempts. If tests still fail after the second, stop. Leave your changes in place and report:
+1. What failed: test names and the actual error output.
+2. What you tried: each attempt, what changed, what happened.
+3. Your hypothesis of the cause.
+4. Exactly which files are modified.
+
+If the task needs a design decision the spec doesn't make, stop and say so instead of guessing.
+
+Report format on success: what changed, what tests ran and their result, anything left open.
+""",
+    "junior": """\
+---
+name: junior
+description: Junior engineer (Haiku). Mechanical chores: renames, formatting, moving files, README/PENDING.md updates, git housekeeping, running a command and reporting output.
+model: haiku
+---
+You are the junior engineer. Do the small task asked, nothing more. If the task says to run tests, run them.
+
+If tests fail: look at the failure and try to fix it. You get two attempts. If tests still fail after the second, stop. Leave your changes in place and report:
+1. What failed: test names and the actual error output.
+2. What you tried: each attempt, what changed, what happened.
+3. Your hypothesis of the cause, and whether it looks mechanical (missed import, wrong path, typo) or a logic problem (the code does the wrong thing). Say which.
+4. Exactly which files are modified.
+
+If anything about the task is unclear or needs a decision, stop and say so instead of guessing.
+
+Report format on success: what changed, what you ran and its output.
+""",
+    "reviewer": """\
+---
+name: reviewer
+description: Reviewer (Opus, senior level, read-only). Checks a finished change against its spec and tests before the architect accepts it. Use after `senior` or `mid` reports done.
+model: opus
+tools: Read, Grep, Glob, Bash
+---
+You are the reviewer. You are given a spec, the list of changed files and the report from whoever did the work. Read the diff, run the tests named in the spec, and judge the change against the spec. Never modify a file. If you see a fix, describe it, don't make it.
+
+Check, in this order:
+1. Does the change do what the spec says, all of it, and nothing the spec didn't ask for?
+2. Do the tests named in the spec pass when you run them? Is "tests pass" in the report the whole set, or a subset?
+3. Is anything unsafe: secrets in code, injection, unchecked input at a trust boundary, destructive operations without a guard?
+4. Would you approve this pull request on a real team?
+
+Report: PASS or FAIL on the first line. Then the reasons, each tied to a file and line. For FAIL, say which level should fix it: a mechanical slip goes back to the author, a logic problem goes one level up.
+""",
+    "qa": """\
+---
+name: qa
+description: QA engineer (Sonnet, mid level). Writes the tests from a finished spec before anyone builds, and runs them to confirm they fail for the right reason.
+model: sonnet
+---
+You are the QA engineer. You are given a spec. Write the tests that define "done" for that spec, in the project's existing test framework and style, before any implementation exists. Do not write the implementation.
+
+Rules:
+- One test per requirement in the spec. Name each test after the requirement it checks.
+- Run the tests. They must fail, and fail because the feature is missing, not because the test is broken. Include the failure output in your report.
+- If the spec is too vague to write a test for, stop and say exactly what is missing. Do not invent requirements.
+- If the project has no test framework, say so and stop. Setting one up is a separate task for the architect to spec.
+
+Report: the test files you added, what each test checks, and the current failure output.
+""",
+    "scout": """\
+---
+name: scout
+description: Scout (Haiku, junior level, read-only). Answers the architect's questions about the codebase before a spec is written: where something is used, what calls it, which tests cover it.
+model: haiku
+tools: Read, Grep, Glob
+---
+You are the scout. Answer the question you are asked about the codebase by reading and searching. Never modify anything.
+
+Report facts with file paths and line numbers. Quote the relevant lines rather than paraphrasing them. If the question is "why" rather than "where" or "what", answer what you can see and say that the rest needs someone more senior. Do not guess.
+""",
+}
+
+# Routing rule for ~/.claude/CLAUDE.md (written between the rules markers).
+RULES = """\
+- Team by seniority. The main session is the architect (Fable): it designs, writes specs,
+  routes work and reviews reports. It does not write code unless escalation reaches it.
+  - Route each task to the most junior agent that can do it reliably, with the full spec:
+    `junior` (Haiku) for mechanical chores, `mid` (Sonnet) for well-defined contained
+    changes, `senior` (Opus) for features and anything with judgement left in it.
+  - Every spec names: the files to touch, the constraints, what "done" means, and which
+    tests must pass. If the architect cannot write those four, the task is not ready.
+  - No test suite in the project: code changes go to `senior` regardless of size, and the
+    spec says how to verify (run the script, hit the endpoint, check the output). `junior`
+    still handles non-code chores (docs, moves, git).
+  - Escalation: when an agent reports failing tests or a problem it could not solve, hand
+    the original spec plus its failure report to the next level up
+    (junior → mid → senior → architect). Never resend to the same level.
+    One skip is allowed: if `junior`'s report says the failure is in logic, not mechanics,
+    send it straight to `senior`. Otherwise never skip a level.
+    If `senior` fails, the main session solves it itself.
+  - Parallel work: run independent tasks at the same time, one subagent each, when they touch
+    different files or are read-only (two mids on unrelated bugs, `qa` on the next ticket while
+    `senior` builds this one, `reviewer` and a security reviewer on the same diff). Never two
+    writers on overlapping files: serialize them or give each a git worktree. Ladder steps
+    (qa → builder → reviewer, and every escalation) are always sequential.
+- Roles beside the ladder (not levels, they do not escalate through each other):
+  - `scout` (Haiku, read-only): answers codebase questions before a spec is written.
+    Use it instead of reading files in the main session.
+  - `qa` (Sonnet): writes the tests from the spec before the builder starts, for any
+    task going to `mid` or `senior`. Broken tests are a mid-level failure: escalate to `senior`.
+  - `reviewer` (Opus, read-only): checks every `mid` and `senior` change against the spec
+    and tests before the architect accepts it. A reviewer FAIL that says "mechanical" goes
+    back to the author; "logic" goes one level up. `junior` chores skip `qa` and `reviewer`.
+- Staffing. The architect (Fable) is also the engineering lead: it decides the team per project.
+  - When a project starts, or has no `.claude/agents/` of its own, run `claude-stuffer`
+    in its folder; it asks about the project and writes the team. Confirm the proposed
+    roles with the user before writing.
+  - Then write the agents to `<project>/.claude/agents/` and the routing additions to the
+    project's `CLAUDE.md`. Never add project roles to `~/.claude/agents/`; the global six
+    (`senior`, `mid`, `junior`, `reviewer`, `qa`, `scout`) are the bench every project gets.
+  - A role is a prompt with domain knowledge, not a level. The level (model) is still chosen
+    per task by judgement needed. A role exists only if the backlog has tasks for it.
+  - Revisit the team when the backlog changes shape; remove roles that stopped being called.
+"""
+
+
+# --------------------------------------------------------------------------
+# Small helpers
+# --------------------------------------------------------------------------
+
+def today():
+    return datetime.date.today().isoformat()
+
+
+def marker_line():
+    return ("<!-- generated by claude-stuffer on %s. Edit freely; re-running overwrites "
+            "this file only with --force. -->" % today())
+
+
+def read_text(path, limit=None):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read(limit) if limit else fh.read()
+    except OSError:
+        return ""
+
+
+def write_text(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+MARKER_PREFIX = "<!-- generated by claude-stuffer on "
+
+
+def is_ours(path):
+    """Ours only if the first body line after the frontmatter is our marker. Never a symlink."""
+    if os.path.islink(path):
+        return False
+    text = read_text(path)
+    m = re.match(r"---\n.*?\n---\n", text, re.S)
+    body = text[m.end():] if m else text
+    return body.startswith(MARKER_PREFIX)
+
+
+def role_title(name):
+    return name.replace("-", " ")
+
+
+def sentence(text):
+    """One line, no trailing period (callers add it)."""
+    return " ".join(str(text).split()).rstrip(".")
+
+
+def capitalized(text):
+    return text[:1].upper() + text[1:]
+
+
+def stuffer_home():
+    return os.environ.get("CLAUDE_STUFFER_HOME") or os.path.expanduser("~")
+
+
+def split_list(value, field="list"):
+    """None, a comma-separated string, or a list of strings; anything else is bad input."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = value.split(",")
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise UsageError("%s must be a list of strings or a single string, not %s"
+                         % (field, json.dumps(value)))
+    return [v.strip() for v in value if v.strip()]
+
+
+def str_field(value, field):
+    if value is not None and not isinstance(value, str):
+        raise UsageError("%s must be a string, not %s" % (field, json.dumps(value)))
+    return value
+
+
+# --------------------------------------------------------------------------
+# Detection
+# --------------------------------------------------------------------------
+
+def scan_project(root):
+    """Return (files, dirs) as relative posix paths, skipping ignored folders."""
+    files, dirs = [], []
+    for here, subdirs, names in os.walk(root):
+        subdirs[:] = sorted(d for d in subdirs if d not in IGNORED_DIRS)
+        rel = os.path.relpath(here, root)
+        rel = "" if rel == "." else rel.replace(os.sep, "/") + "/"
+        dirs.extend(rel + d for d in subdirs)
+        files.extend(rel + n for n in sorted(names))
+        if len(files) > MAX_FILES:
+            break
+    return files, dirs
+
+
+def _base(path):
+    return path.rsplit("/", 1)[-1]
+
+
+def _any(files, *patterns):
+    return any(fnmatch.fnmatch(_base(f), p) for f in files for p in patterns)
+
+
+def _load_json(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+LANGUAGE_RULES = [
+    ("Python", ["pyproject.toml", "requirements*.txt", "*.py"]),
+    ("Go", ["go.mod"]),
+    ("Flutter/Dart", ["pubspec.yaml"]),
+    ("JavaScript/Node", ["package.json"]),
+    ("Rust", ["Cargo.toml"]),
+    ("Shell", ["*.sh", "*.bash"]),
+    ("ksh", ["*.ksh"]),
+    ("Godot", ["project.godot"]),
+    ("Docker", ["docker-compose*.yml", "docker-compose*.yaml", "Dockerfile"]),
+    ("SQL", ["*.sql"]),
+    ("PowerShell", ["*.ps1"]),
+]
+
+
+def detect_languages(files):
+    return [lang for lang, patterns in LANGUAGE_RULES if _any(files, *patterns)]
+
+
+def detect_test_command(root, files):
+    top = set(f for f in files if "/" not in f)
+    if "go.mod" in top:
+        return "go test ./..."
+    if "pubspec.yaml" in top:
+        return "flutter test"
+    if "package.json" in top:
+        test = (_load_json(os.path.join(root, "package.json")).get("scripts") or {}).get("test")
+        if test and "no test specified" not in str(test):
+            return "npm test"
+    for folder in ("tests", "test"):
+        if any(fnmatch.fnmatch(f, folder + "/*.bats") for f in files):
+            return "bats " + folder
+    for make in ("Makefile", "makefile"):
+        if make in top and re.search(r"^test\s*:", read_text(os.path.join(root, make)), re.M):
+            return "make test"
+    if ("pytest.ini" in top or "pyproject.toml" in top
+            or any(fnmatch.fnmatch(f, "tests/*.py") for f in files)
+            or _any(files, "test_*.py")):
+        return "pytest"
+    return None
+
+
+def detect_kind(root, files, dirs):
+    top = set(f for f in files if "/" not in f)
+    top_dirs = set(d for d in dirs if "/" not in d)
+    dir_names = set(_base(d) for d in dirs)
+    has_main = _any(files, "main.go", "cli.py", "__main__.py")
+
+    if _any(files, "project.godot") or dir_names & {"godot", "genres", "games"}:
+        return "game"
+    if _any(files, "pubspec.yaml") or {"android", "ios"} <= top_dirs:
+        return "mobile"
+    if (_any(files, "docker-compose*.yml", "docker-compose*.yaml", "Caddyfile", "nginx*.conf")
+            or top_dirs & {"ops", "deploy"}):
+        return "infra"
+    if "package.json" in top:
+        pkg = _load_json(os.path.join(root, "package.json"))
+        deps = {}
+        for key in ("dependencies", "devDependencies", "peerDependencies"):
+            deps.update(pkg.get(key) or {})
+        if set(deps) & {"react", "vue", "svelte"}:
+            return "web"
+    if _any(files, "index.html") and _any(files, "*.css"):
+        return "web"
+    if sum(1 for f in files if f.endswith(".sql")) >= 3 or top_dirs & {"data", "etl"}:
+        return "data"
+    if ("go.mod" in top or "pyproject.toml" in top) and has_main:
+        return "cli"
+    if (("setup.py" in top or "pyproject.toml" in top) and not has_main) or \
+            ("lib" in top_dirs and "go.mod" in top):
+        return "library"
+    rest = [f for f in files if f not in ("README.md", "CLAUDE.md")]
+    if rest and sum(1 for f in rest if f.lower().endswith(".md")) * 2 > len(rest):
+        return "content"
+    return "other"
+
+
+def detect_docs(files):
+    found = [f for f in ("README.md", "CLAUDE.md") if f in files]
+    in_docs = sorted((f for f in files if f.startswith("docs/") and f.endswith(".md")),
+                     key=lambda f: (f.count("/"), f))
+    patterns = ["*style*guide*.md", "*conventions*.md", "*architecture*.md"]
+    named = [f for f in files if any(fnmatch.fnmatch(_base(f).lower(), p) for p in patterns)]
+    for f in in_docs + named:
+        if f not in found:
+            found.append(f)
+    return found[:8]
+
+
+def detect_production(root, files):
+    for f in files:
+        base = _base(f)
+        if (f.startswith("ops/") or f.startswith("deploy/") or base == "Caddyfile"
+                or fnmatch.fnmatch(base, "docker-compose*.yml")
+                or fnmatch.fnmatch(base, "docker-compose*.yaml") or base.endswith(".ksh")):
+            return True
+    for f in files:
+        base = _base(f)
+        if base.endswith(".sh") or base == "Makefile":
+            if "cron" in read_text(os.path.join(root, f), 1 << 20):
+                return True
+    return False
+
+
+def detect_description(root):
+    text = read_text(os.path.join(root, "README.md"))
+    for para in re.split(r"\n\s*\n", text):
+        para = " ".join(para.split())
+        if not para or para.startswith(("#", "!", "<", "[![", "```", "---", "===")):
+            continue
+        first = re.split(r"(?<=[.!?])\s", para, maxsplit=1)[0]
+        return first[:200].strip()
+    return ""
+
+
+def detect(root):
+    files, dirs = scan_project(root)
+    return {
+        "name": os.path.basename(os.path.abspath(root)),
+        "description": detect_description(root),
+        "kind": detect_kind(root, files, dirs),
+        "languages": detect_languages(files),
+        "test_command": detect_test_command(root, files),
+        "production": detect_production(root, files),
+        "docs": detect_docs(files),
+    }
+
+
+# --------------------------------------------------------------------------
+# Rendering
+# --------------------------------------------------------------------------
+
+def is_path_like(item):
+    return " " not in item and ("/" in item or re.search(r"\.[A-Za-z0-9]{1,6}$", item) is not None)
+
+
+def render_agent(plan, role):
+    """Text of <project>/.claude/agents/<name>.md for one role."""
+    name, level = role["name"], role["level"]
+    model = LEVEL_MODEL[level]
+    title = role_title(name)
+    head = ["---", "name: " + name,
+            "description: %s for %s (%s, %s; level set per task by the architect). %s." % (
+                capitalized(title), plan["name"], level, model, capitalized(sentence(role["line"]))),
+            "model: " + model]
+    if role.get("tools"):
+        head.append("tools: " + role["tools"])
+    head.append("---")
+
+    knows = role.get("knows") or []
+    read_first = list(plan["docs"])
+    read_first += [k for k in knows if is_path_like(k) and k not in read_first]
+    notes = [k for k in knows if not is_path_like(k)]
+
+    body = [marker_line(),
+            "You are the %s for %s: %s." % (title, plan["name"], sentence(plan["description"]))]
+    if read_first:
+        body.append("Read first: %s." % ", ".join(read_first))
+    if notes:
+        body.append("Know: %s." % "; ".join(sentence(n) for n in notes))
+    if plan["languages"]:
+        body.append("Stack: %s." % ", ".join(plan["languages"]))
+    if plan["test_command"]:
+        body.append("Tests: run `%s` after every change." % plan["test_command"])
+    else:
+        body.append(NO_TESTS_LINE)
+    if plan["production"]:
+        body.append(PRODUCTION_LINE)
+    if role.get("rules"):
+        body.append("Rules:")
+        body += ["- " + r for r in role["rules"]]
+    if role.get("tools"):
+        body += [READ_ONLY_FAILURE, READ_ONLY_REPORT]
+    else:
+        body += [FAILURE_PARAGRAPH, REPORT_LINE]
+    return "\n".join(head + body) + "\n"
+
+
+def render_team_block(plan):
+    lines = ["## Team (staffed %s by claude-stuffer)" % today(), "",
+             "Global bench applies (`senior`, `mid`, `junior`, `reviewer`, `qa`, `scout`). "
+             "Project roles, level chosen per task by the architect:", ""]
+    for role in plan["roles"]:
+        lines.append("- `%s` (%s; %s): %s." % (
+            role["name"], LEVEL_MODEL[role["level"]].capitalize(), role["level"],
+            capitalized(sentence(role["line"]))))
+    if not plan["test_command"]:
+        lines.append("- No test suite: code changes go to the most senior role that fits, "
+                     "and every spec says how to verify.")
+    if plan["production"]:
+        lines.append("- Production: changes are specified, backed up and verified one at a time; "
+                     "the user applies anything the spec marks as manual.")
+    return "\n".join(lines)
+
+
+def upsert_block(text, start, end, body):
+    """Replace the block between start/end markers in place, or append it."""
+    block = "%s\n%s\n%s" % (start, body.strip("\n"), end)
+    i = text.find(start)
+    j = text.find(end, i + len(start)) if i >= 0 else -1
+    if i >= 0 and j >= 0:
+        return text[:i] + block + text[j + len(end):]
+    if i >= 0 or end in text:
+        raise UsageError("unbalanced claude-stuffer markers in CLAUDE.md (%s ... %s); fix it by hand"
+                         % (start, end))
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text + ("\n" if text else "") + block + "\n"
+
+
+def bench_text(name):
+    """A bench agent with the generated-by marker as the first body line."""
+    m = re.match(r"(---\n.*?\n---\n)(.*)", BENCH[name], re.S)
+    return m.group(1) + marker_line() + "\n" + m.group(2)
+
+
+# --------------------------------------------------------------------------
+# File actions (shared by init and staffing)
+# --------------------------------------------------------------------------
+
+def plan_file(path, content, force):
+    """Decide what to do with one generated file: write, rewrite, keep or not-ours."""
+    if os.path.islink(path):
+        return (path, "not ours", None)  # never write through a link, dangling or not
+    if not os.path.exists(path):
+        return (path, "write", content)
+    if not is_ours(path):
+        return (path, "not ours", None)
+    if force:
+        return (path, "rewrite", content)
+    return (path, "keep", None)
+
+
+DONE_LABEL = {"write": "wrote", "rewrite": "rewrote", "keep": "kept", "not ours": "not ours",
+              "update": "updated"}
+
+
+def display_path(path):
+    """Paths under the current folder print relative; under the home folder as ~/..."""
+    cwd, home = os.getcwd(), stuffer_home()
+    if path.startswith(cwd + os.sep):
+        return os.path.relpath(path, cwd)
+    if path.startswith(home.rstrip(os.sep) + os.sep):
+        return "~/" + os.path.relpath(path, home)
+    return path
+
+
+def describe(actions, dry_run):
+    out = []
+    for path, action, _ in actions:
+        if dry_run and action in ("write", "rewrite", "update"):
+            label = "would " + action
+        else:
+            label = DONE_LABEL[action]
+        note = ""
+        if action == "keep":
+            note = "  (exists; --force rewrites it)"
+        elif action == "not ours":
+            note = "  (no claude-stuffer marker; left alone)"
+        out.append("  %-12s %s%s" % (label, display_path(path), note))
+    return "\n".join(out)
+
+
+def apply(actions):
+    for path, action, content in actions:
+        if content is not None and action in ("write", "rewrite", "update"):
+            write_text(path, content)
+
+
+def claude_md_action(path, heading, start, end, body):
+    if os.path.islink(path) and not os.path.exists(path):
+        raise UsageError("%s is a broken symlink; fix or remove it first" % path)
+    text = read_text(path) if os.path.exists(path) else heading + "\n"
+    return (path, "update", upsert_block(text, start, end, body))
+
+
+# --------------------------------------------------------------------------
+# Plans: from an answers file or from the interview
+# --------------------------------------------------------------------------
+
+def catalog_role(name, level=None):
+    role = dict(ROLES[name])
+    role["name"] = name
+    role["level"] = level or role["level"]
+    role["knows"] = []
+    return role
+
+
+def custom_role(entry):
+    if not isinstance(entry, dict):
+        raise UsageError("custom_roles entries must be objects")
+    name = (str_field(entry.get("name"), "custom role name") or "").strip()
+    if not ROLE_NAME_RE.match(name):
+        raise UsageError("bad custom role name %r (lowercase letters, digits, hyphens)" % name)
+    level = (str_field(entry.get("level"), "level of " + name) or "mid").strip()
+    if level not in LEVEL_MODEL:
+        raise UsageError("bad level %r for %s (senior, mid or junior)" % (level, name))
+    line = sentence(str_field(entry.get("description"), "description of " + name) or "")
+    if not line:
+        raise UsageError("custom role %s needs a description" % name)
+    return {"name": name, "level": level, "line": line, "rules": [], "tools": None,
+            "knows": split_list(entry.get("knows"), "knows of " + name)}
+
+
+def finish_plan(plan):
+    names = [r["name"] for r in plan["roles"]]
+    dupes = sorted(set(n for n in names if names.count(n) > 1))
+    if dupes:
+        raise UsageError("role named twice: " + ", ".join(dupes))
+    if not plan["roles"]:
+        raise Abort("no roles chosen, nothing to do")
+    return plan
+
+
+def plan_from_answers(path, detected):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except OSError as exc:
+        raise UsageError("cannot read answers file: %s" % exc)
+    except ValueError as exc:
+        raise UsageError("answers file is not valid JSON: %s" % exc)
+    if not isinstance(data, dict):
+        raise UsageError("answers file must be a JSON object")
+
+    kind = str_field(data.get("kind", detected["kind"]), "kind")
+    if kind not in KIND_ROLES:
+        raise UsageError("unknown kind %r (known: %s)" % (kind, ", ".join(KINDS)))
+    description = sentence(str_field(data.get("description", detected["description"]), "description") or "")
+    if not description:
+        raise UsageError("answers need a description (none in the file, none found in README.md)")
+    test_command = str_field(data.get("test_command", detected["test_command"]), "test_command")
+    test_command = (test_command or "").strip() or None
+    if test_command and test_command.lower() == "none":
+        test_command = None
+
+    role_names = data.get("roles")
+    role_names = KIND_ROLES[kind] if role_names is None else split_list(role_names, "roles")
+    addons = split_list(data.get("addons"), "addons")
+    for n in role_names:
+        if n not in ROLES:
+            raise UsageError("unknown role %r (see claude-stuffer --kinds)" % n)
+    for n in addons:
+        if n not in ADDONS:
+            raise UsageError("unknown add-on %r (known: %s)" % (n, ", ".join(ADDONS)))
+
+    roles = [catalog_role(n) for n in role_names]
+    roles += [catalog_role(n) for n in addons if n not in role_names]
+    customs = data.get("custom_roles") or []
+    if not isinstance(customs, list):
+        raise UsageError("custom_roles must be a list")
+    roles += [custom_role(c) for c in customs]
+    production = data.get("production", detected["production"])
+    if not isinstance(production, bool):
+        raise UsageError("production must be true or false, not %s" % json.dumps(production))
+
+    plan = {
+        "name": sentence(str_field(data.get("name"), "name") or detected["name"]),
+        "description": description,
+        "kind": kind,
+        "languages": split_list(data.get("languages", detected["languages"]), "languages"),
+        "test_command": test_command,
+        "production": production,
+        "docs": split_list(data.get("docs", detected["docs"]), "docs"),
+        "roles": roles,
+    }
+    return finish_plan(plan)
+
+
+class Prompter:
+    """Line-by-line questions on stdin/stdout. At end of input every answer is its default,
+    except the final confirmation, which then means no."""
+
+    def __init__(self):
+        self.eof = False
+        self.tty = sys.stdin.isatty()
+
+    def read(self, prompt):
+        if self.eof:
+            print(prompt)
+            return ""
+        try:
+            line = input(prompt)
+        except EOFError:
+            self.eof = True
+            print()
+            return ""
+        if not self.tty:
+            print(line.strip())  # echo piped answers so the transcript reads like a session
+        return line.strip()
+
+    def ask(self, question, default=""):
+        shown = " [%s]" % default if default else ""
+        return self.read("%s%s: " % (question, shown)) or default
+
+    def yes(self, question, default, eof_means_no=False):
+        """y/n question. With eof_means_no, end of input aborts instead of taking the default."""
+        hint = "[Y/n]" if default else "[y/N]"
+        while True:
+            answer = self.read("%s %s " % (question, hint)).lower()
+            if self.eof and eof_means_no:
+                raise Abort("no confirmation (end of input), nothing written")
+            if not answer:
+                return default
+            if answer in ("y", "yes"):
+                return True
+            if answer in ("n", "no"):
+                return False
+            print("  please answer y or n")
+
+
+def interview(detected, io):
+    print("claude-stuffer %s: staffing a project. Enter accepts the default in brackets.\n" % VERSION)
+    name = io.ask("Project name", detected["name"])
+
+    description = ""
+    while not description:
+        description = sentence(io.ask("What is it, in one line", detected["description"]))
+        if not description:
+            if io.eof:
+                raise UsageError("a one-line description is required")
+            print("  a one-line description is required")
+
+    print("Kinds:")
+    for i, kind in enumerate(KINDS, 1):
+        print("  %2d. %-8s %s" % (i, kind, ", ".join(KIND_ROLES[kind]) or "(custom roles only)"))
+    while True:
+        answer = io.ask("Kind", detected["kind"])
+        if answer.isdigit() and 1 <= int(answer) <= len(KINDS):
+            kind = KINDS[int(answer) - 1]
+            break
+        if answer in KIND_ROLES:
+            kind = answer
+            break
+        print("  pick a number or a kind name")
+
+    languages = io.ask("Languages/frameworks, comma separated", ", ".join(detected["languages"]))
+    languages = [] if languages.lower() == "none" else split_list(languages)
+
+    test_command = io.ask('Test command ("none" if there is no test suite)', detected["test_command"] or "none")
+    if test_command.lower() == "none":
+        test_command = None
+        print(NO_TESTS_NOTICE)
+
+    production = io.yes("Touches production systems (servers, cron, live databases)?",
+                        detected["production"])
+    docs = io.ask("Documents a role must read first, comma separated", ", ".join(detected["docs"]))
+    docs = [] if docs.lower() == "none" else split_list(docs)
+
+    roles = []
+    for role_name in KIND_ROLES[kind]:
+        role = catalog_role(role_name)
+        if io.yes("Keep %s (%s): %s?" % (role_name, role["level"], role["line"]), True):
+            roles.append(role)
+
+    offered = []
+    if production and "site-ops" not in KIND_ROLES[kind]:
+        offered.append("site-ops")
+    if production or SECURITY_WORDS.search(description + " " + " ".join(languages)):
+        offered.append("security-reviewer")
+    for addon in offered:
+        role = catalog_role(addon)
+        if io.yes("Add %s (%s): %s?" % (addon, role["level"], role["line"]), False):
+            roles.append(role)
+
+    print("Custom roles (blank name to finish).")
+    taken = set(r["name"] for r in roles)
+    while True:
+        role_name = io.ask("  Role name (lowercase, hyphens)")
+        if not role_name:
+            break
+        if not ROLE_NAME_RE.match(role_name) or role_name in taken:
+            print("  use 2-41 characters: lowercase letters, digits, hyphens; not a name already chosen")
+            continue
+        line = ""
+        while not line:
+            line = sentence(io.ask("  What it does (one line)"))
+            if not line and io.eof:
+                raise UsageError("custom role %s needs a description" % role_name)
+        knows = split_list(io.ask("  What it must know (comma-separated paths or notes)"))
+        while True:
+            level = io.ask("  Level (senior, mid, junior)", "mid")
+            if level in LEVEL_MODEL:
+                break
+            print("  senior, mid or junior")
+        roles.append({"name": role_name, "level": level, "line": line, "rules": [], "tools": None,
+                      "knows": knows})
+        taken.add(role_name)
+
+    return finish_plan({"name": name, "description": description, "kind": kind,
+                        "languages": languages, "test_command": test_command,
+                        "production": production, "docs": docs, "roles": roles})
+
+
+# --------------------------------------------------------------------------
+# Commands
+# --------------------------------------------------------------------------
+
+def staff_actions(project, plan, force):
+    agents = os.path.join(project, ".claude", "agents")
+    actions = [plan_file(os.path.join(agents, r["name"] + ".md"), render_agent(plan, r), force)
+               for r in plan["roles"]]
+    actions.append(claude_md_action(os.path.join(project, "CLAUDE.md"), "# " + plan["name"],
+                                    TEAM_START, TEAM_END, render_team_block(plan)))
+    chosen = set(r["name"] + ".md" for r in plan["roles"])
+    leftovers = []
+    if os.path.isdir(agents):
+        for f in sorted(os.listdir(agents)):
+            path = os.path.join(agents, f)
+            if f.endswith(".md") and f not in chosen and is_ours(path):
+                leftovers.append(path)
+    return actions, leftovers
+
+
+def warn_if_no_bench():
+    agents = os.path.join(stuffer_home(), ".claude", "agents")
+    missing = [n for n in BENCH_NAMES if not os.path.isfile(os.path.join(agents, n + ".md"))]
+    if missing:
+        sys.stderr.write("warning: the global bench is missing in %s (%s); run `claude-stuffer init`\n"
+                         % (agents, ", ".join(missing)))
+
+
+def cmd_staff(args):
+    project = os.path.abspath(args.project or os.getcwd())
+    if not os.path.isdir(project):
+        raise UsageError("no such folder: %s" % project)
+    detected = detect(project)
+    if args.answers:
+        plan = plan_from_answers(args.answers, detected)
+        io = None
+    else:
+        warn_if_no_bench()
+        io = Prompter()
+        plan = interview(detected, io)
+
+    actions, leftovers = staff_actions(project, plan, args.force)
+    if args.dry_run or io is not None:
+        print("\nFiles for %s (%s):" % (plan["name"], ", ".join(r["name"] for r in plan["roles"])))
+        print(describe(actions, dry_run=True))
+    if args.dry_run:
+        if leftovers:
+            print("remove by hand: " + " ".join(display_path(p) for p in leftovers))
+        print("Dry run: nothing written.")
+        return EXIT_OK
+    if io is not None and not io.yes("Write these files?", True, eof_means_no=True):
+        raise Abort("nothing written")
+
+    apply(actions)
+    print("Staffed %s:" % plan["name"])
+    print(describe(actions, dry_run=False))
+    if leftovers:
+        print("remove by hand: " + " ".join(display_path(p) for p in leftovers))
+    print("Check with /agents in a new session.")
+    return EXIT_OK
+
+
+def cmd_init(args):
+    claude = os.path.join(stuffer_home(), ".claude")
+    agents = os.path.join(claude, "agents")
+    actions = [plan_file(os.path.join(agents, n + ".md"), bench_text(n), args.force) for n in BENCH_NAMES]
+    actions.append(claude_md_action(os.path.join(claude, "CLAUDE.md"), "# Global instructions",
+                                    RULES_START, RULES_END, RULES))
+    print(describe(actions, dry_run=args.dry_run))
+    if args.dry_run:
+        print("Dry run: nothing written.")
+        return EXIT_OK
+    apply(actions)
+    print(INIT_HINT)
+    return EXIT_OK
+
+
+def parse_frontmatter(text):
+    m = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    out = {}
+    if m:
+        for line in m.group(1).splitlines():
+            key, _, value = line.partition(":")
+            out[key.strip()] = value.strip()
+    return out
+
+
+def show_line(description, ours):
+    """The role's own one-liner: after the `architect). ` prefix for our files, else the first sentence."""
+    prefix = "architect). "
+    if ours and prefix in description:
+        return description.split(prefix, 1)[1]
+    return re.split(r"(?<=[.!?])\s", description, maxsplit=1)[0]
+
+
+def cmd_show(args):
+    project = os.path.abspath(args.project or os.getcwd())
+    agents = os.path.join(project, ".claude", "agents")
+    files = sorted(f for f in os.listdir(agents) if f.endswith(".md")) if os.path.isdir(agents) else []
+    if not files:
+        raise Abort("no team here, run claude-stuffer")
+    rows = [("name", "model", "level", "description", "generated")]
+    for f in files:
+        text = read_text(os.path.join(agents, f))
+        fm = parse_frontmatter(text)
+        model = fm.get("model", "?")
+        ours = is_ours(os.path.join(agents, f))
+        rows.append((fm.get("name", f[:-3]), model, MODEL_LEVEL.get(model, "?"),
+                     show_line(fm.get("description", ""), ours), "yes" if ours else "no"))
+    widths = [max(len(r[i]) for r in rows) for i in range(4)]
+    for r in rows:
+        print("  ".join(r[i].ljust(widths[i]) for i in range(4)) + "  " + r[4])
+    return EXIT_OK
+
+
+def print_kinds():
+    for kind in KINDS:
+        roles = ", ".join("%s (%s)" % (n, ROLES[n]["level"]) for n in KIND_ROLES[kind])
+        print("%-8s %s" % (kind, roles or "no proposed roles; custom only"))
+    print("add-ons   " + ", ".join("%s (%s)" % (n, ROLES[n]["level"]) for n in ADDONS))
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+
+def add_common(parser, suppress):
+    default = {"default": argparse.SUPPRESS} if suppress else {}
+    parser.add_argument("--dry-run", action="store_true", help="print every file that would be written, write nothing", **default)
+    parser.add_argument("--answers", metavar="FILE.json", help="non-interactive: take answers from FILE", **default)
+    parser.add_argument("--project", metavar="DIR", help="use DIR instead of the current folder", **default)
+    parser.add_argument("--force", action="store_true", help="overwrite agent files this tool generated earlier", **default)
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="claude-stuffer",
+        description="Staff a Claude Code project with a team of subagents (team by seniority). "
+                    "With no command: interview in the project folder, then write the team.",
+        epilog="Exit codes: 0 ok, 1 user abort or nothing to do, 2 bad usage or error.")
+    parser.add_argument("--version", action="version", version="claude-stuffer " + VERSION)
+    parser.add_argument("--kinds", action="store_true", help="list project kinds and the roles each proposes")
+    add_common(parser, suppress=False)
+    sub = parser.add_subparsers(dest="command", metavar="{init,show}")
+    p_init = sub.add_parser("init", help="install or update the global bench in ~/.claude")
+    add_common(p_init, suppress=True)
+    p_show = sub.add_parser("show", help="print the project's current team")
+    add_common(p_show, suppress=True)
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    try:
+        if args.kinds:
+            return print_kinds()
+        if args.command == "init":
+            return cmd_init(args)
+        if args.command == "show":
+            return cmd_show(args)
+        return cmd_staff(args)
+    except UsageError as exc:
+        sys.stderr.write("claude-stuffer: error: %s\n" % exc)
+        return EXIT_USAGE
+    except Abort as exc:
+        sys.stderr.write("claude-stuffer: %s\n" % exc)
+        return EXIT_ABORT
+    except KeyboardInterrupt:
+        sys.stderr.write("\nclaude-stuffer: aborted, nothing written\n")
+        return EXIT_ABORT
+    except OSError as exc:
+        sys.stderr.write("claude-stuffer: error: %s\n" % exc)
+        return EXIT_USAGE
+
+
+if __name__ == "__main__":
+    sys.exit(main())
