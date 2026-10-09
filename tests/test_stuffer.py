@@ -252,10 +252,10 @@ class TestCli(Base):
             for role in roles:
                 self.assertIn(role, r.stdout)
 
-    def test_version_prints_0_2_1(self):
+    def test_version_prints_0_2_2(self):
         r = run(["--version"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("0.2.1", r.stdout + r.stderr)
+        self.assertIn("0.2.2", r.stdout + r.stderr)
 
     def test_help_mentions_ticket(self):
         r = run(["--help"])
@@ -538,6 +538,18 @@ class TestInit(Base):
         self.init()
         text = read(os.path.join(self.home, ".claude", "CLAUDE.md"))
         return text.split(RULES_START)[1].split(RULES_END)[0]
+
+    def test_init_scout_bench_file_has_30_call_budget_and_not_reached(self):
+        r = self.init()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = read(os.path.join(self.agents_dir(), "scout.md"))
+        self.assertIn("at most 30 tool calls", text)
+        self.assertIn("Not reached", text)
+
+    def test_init_rules_block_says_lookups_not_surveys(self):
+        block = self._rules_block()
+        self.assertIn("Lookups, not", block)
+        self.assertIn('"how does X work" goes to the builder', block)
 
     def test_init_rules_block_contains_cost_rule_and_compact(self):
         block = self._rules_block()

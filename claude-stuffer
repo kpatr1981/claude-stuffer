@@ -22,7 +22,7 @@ import os
 import re
 import sys
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 EXIT_OK, EXIT_ABORT, EXIT_USAGE = 0, 1, 2
 
@@ -323,13 +323,17 @@ Report: the test files you added, what each test checks, and the current failure
     "scout": """\
 ---
 name: scout
-description: Scout (Haiku, junior level, no code edits). Answers the architect's questions about the codebase before a spec is written: where something is used, what calls it, which tests cover it.
+description: Scout (Haiku, junior level, no code edits). Looks things up in the codebase for the architect before a spec is written: which files a change touches, which tests cover them, where a symbol is used. Lookups, not surveys; at most 30 tool calls.
 model: haiku
 tools: Read, Grep, Glob, Write, Edit
 ---
-You are the scout. Answer the question you are asked about the codebase by reading and searching. Read docs/tickets/FACTS.md first if it exists; it holds facts earlier scouts found. Write your answer to scout.md in the ticket folder named in the handoff, append any durable fact (where something lives, which tests cover what) as one line to docs/tickets/FACTS.md, and reply in chat with one line: done and the path. Those two files are the only things you ever write.
+You are the scout. You answer lookup questions about the codebase: where something lives, what calls it, which tests cover it. You do not survey a subsystem or explain how it works; if a question needs that, say so in one line and leave it to the builder, who reads the code anyway.
 
-Report facts with file paths and line numbers. Quote the relevant lines rather than paraphrasing them. If the question is "why" rather than "where" or "what", answer what you can see and say that the rest needs someone more senior. Do not guess.
+Budget: at most 30 tool calls in total, fewer if the handoff says so. Read docs/tickets/FACTS.md first if it exists and do not re-derive what it already says. Prefer Grep and Glob to Read; read only the lines you need, never a whole file to find one symbol.
+
+Write as you go: after each question is answered, append it to scout.md in the ticket folder named in the handoff, so a cut-off run still leaves its findings. When the budget is spent, stop, add a final section "Not reached" listing the questions you did not answer and the best place to look for each, and report. Append any durable fact (where something lives, which tests cover what) as one line to docs/tickets/FACTS.md. Reply in chat with one line: done or partial, and the path. Those two files are the only things you ever write.
+
+Report facts with file paths and line numbers. Quote the relevant lines rather than paraphrasing them. Do not guess.
 """,
     "pm": """\
 ---
@@ -380,7 +384,8 @@ RULES = """\
     What costs is the number of spawns (each starts cold), the model each one runs on, and the
     length of every transcript, because each tool call re-sends the whole transcript so far.
     Agents do not pay for talking to each other; handoffs are one prompt in, one line back.
-    So: one scout per ticket with three or four questions, not one broad sweep; `/compact` once
+    So: scouts do lookups, not surveys (one question or a few on the same files, 30 tool calls at
+    most, "how does X work" goes to the builder); `/compact` once
     a ticket closes so the next task starts from the ticket folder, not the conversation; Opus
     (`senior`, `reviewer`) only where judgement is needed. The ladder is for features: a change
     smaller than its spec goes to one `junior` without qa or reviewer, or the architect makes it
@@ -397,7 +402,10 @@ RULES = """\
     (date, slug, who built it, escalations, verdicts). The scout appends durable facts it finds
     (where things live, which tests cover what) to `docs/tickets/FACTS.md` and reads it first next time.
 - Roles beside the ladder (not levels, they do not escalate through each other):
-  - `scout` (Haiku, no code edits, writes only scout.md and FACTS.md): answers codebase questions before a spec is written.
+  - `scout` (Haiku, no code edits, writes only scout.md and FACTS.md): looks things up before a spec is
+    written: which files a change touches, which tests cover them, where a symbol is used. Lookups, not
+    surveys: one question or a few on the same files, at most 30 tool calls, writes scout.md as it goes
+    and ends with a "Not reached" list. "How does X work" is the builder's question, not the scout's.
     Use it instead of reading files in the main session.
   - `qa` (Sonnet): writes the tests from the spec before the builder starts, for any
     task going to `mid` or `senior`. Broken tests are a mid-level failure: escalate to `senior`.
