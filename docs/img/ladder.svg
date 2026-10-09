@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="520" viewBox="0 0 980 520" font-family="SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#e6e6e6">
+<rect width="980" height="520" rx="10" fill="#14161c"/>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9aa0a6"/></marker></defs>
+<rect x="150" y="400" width="200" height="56" rx="6" fill="#1c1f27" stroke="#98c379" stroke-width="1.5"/>
+<text x="250.0" y="432.7" text-anchor="middle" font-size="14" fill="#98c379">junior · Haiku</text>
+<rect x="150" y="290" width="200" height="56" rx="6" fill="#1c1f27" stroke="#61afef" stroke-width="1.5"/>
+<text x="250.0" y="322.7" text-anchor="middle" font-size="14" fill="#61afef">mid · Sonnet</text>
+<rect x="150" y="180" width="200" height="56" rx="6" fill="#14161c" stroke="#4b4f5a" stroke-width="1.5"/>
+<text x="250.0" y="212.7" text-anchor="middle" font-size="14" fill="#4b4f5a">senior · Opus</text>
+<rect x="150" y="70" width="200" height="56" rx="6" fill="#1c1f27" stroke="#c678dd" stroke-width="1.5"/>
+<text x="250.0" y="102.7" text-anchor="middle" font-size="14" fill="#c678dd">architect · Fable</text>
+<line x1="250" y1="400" x2="250" y2="348" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
+<line x1="250" y1="290" x2="250" y2="238" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#a)"/>
+<line x1="250" y1="180" x2="250" y2="128" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#a)"/>
+<path d="M 150 420 C 60 380, 60 260, 150 212" fill="none" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="2 4" marker-end="url(#a)"/>
+<text x="20" y="478" font-size="11" fill="#8b919c" text-anchor="start" font-weight="normal">dotted = the one skip,</text>
+<text x="20" y="492" font-size="11" fill="#8b919c" text-anchor="start" font-weight="normal">only if the report says logic</text>
+<text x="390" y="412" font-size="13" fill="#e6e6e6" text-anchor="start" font-weight="normal">rename pkg/filter → pkg/sieve · 2 tests fail: cannot find package</text>
+<text x="390" y="430" font-size="13" fill="#8b919c" text-anchor="start" font-weight="normal">attempt 1: a missed import → 1 test still fails</text>
+<text x="390" y="448" font-size="13" fill="#8b919c" text-anchor="start" font-weight="normal">attempt 2: the package name is built from a string in rules.yaml → stop</text>
+<text x="390" y="466" font-size="13" fill="#98c379" text-anchor="start" font-weight="normal">report: what failed · both attempts · hypothesis · 'looks mechanical'</text>
+<text x="390" y="302" font-size="13" fill="#c678dd" text-anchor="start" font-weight="normal">architect routes: mechanical → one level up, no skip</text>
+<text x="390" y="320" font-size="13" fill="#8b919c" text-anchor="start" font-weight="normal">gets the spec + the junior's report</text>
+<text x="390" y="338" font-size="13" fill="#61afef" text-anchor="start" font-weight="normal">greps the string, fixes rules.yaml and one fixture · tests green</text>
+<text x="390" y="212" font-size="13" fill="#4b4f5a" text-anchor="start" font-weight="normal">never involved</text>
+<text x="390" y="102" font-size="13" fill="#8b919c" text-anchor="start" font-weight="normal">last stop · would arrive with three failure reports' worth of context</text>
+<text x="490" y="506" font-size="12" fill="#8b919c" text-anchor="middle" font-weight="normal">cost: one Haiku run, one Sonnet run · each level gets two attempts, then it stops and reports</text>
+</svg>

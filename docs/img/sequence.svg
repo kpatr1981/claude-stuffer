@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="640" viewBox="0 0 1040 640" font-family="SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#e6e6e6">
+<rect width="1040" height="640" rx="10" fill="#14161c"/>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9aa0a6"/></marker></defs>
+<text x="50" y="36" font-size="13" fill="#e6e6e6" text-anchor="middle" font-weight="bold">you</text>
+<line x1="50" y1="48" x2="50" y2="600" stroke="#3a3f4b" stroke-width="1.5" stroke-dasharray="3 4"/>
+<text x="200" y="36" font-size="13" fill="#c678dd" text-anchor="middle" font-weight="bold">architect</text>
+<line x1="200" y1="48" x2="200" y2="600" stroke="#3a3f4b" stroke-width="1.5" stroke-dasharray="3 4"/>
+<text x="350" y="36" font-size="13" fill="#98c379" text-anchor="middle" font-weight="bold">scout</text>
+<line x1="350" y1="48" x2="350" y2="600" stroke="#3a3f4b" stroke-width="1.5" stroke-dasharray="3 4"/>
+<text x="500" y="36" font-size="13" fill="#61afef" text-anchor="middle" font-weight="bold">qa</text>
+<line x1="500" y1="48" x2="500" y2="600" stroke="#3a3f4b" stroke-width="1.5" stroke-dasharray="3 4"/>
+<text x="660" y="36" font-size="13" fill="#e5c07b" text-anchor="middle" font-weight="bold">cli-developer</text>
+<line x1="660" y1="48" x2="660" y2="600" stroke="#3a3f4b" stroke-width="1.5" stroke-dasharray="3 4"/>
+<text x="820" y="36" font-size="13" fill="#e5c07b" text-anchor="middle" font-weight="bold">reviewer</text>
+<line x1="820" y1="48" x2="820" y2="600" stroke="#3a3f4b" stroke-width="1.5" stroke-dasharray="3 4"/>
+<text x="960" y="36" font-size="13" fill="#e5c07b" text-anchor="middle" font-weight="bold">security-reviewer</text>
+<line x1="960" y1="48" x2="960" y2="600" stroke="#3a3f4b" stroke-width="1.5" stroke-dasharray="3 4"/>
+<line x1="50" y1="80" x2="200" y2="80" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="57" y="60" width="127" height="18" fill="#14161c"/>
+<text x="62" y="74" font-size="12" fill="#e6e6e6" text-anchor="start" font-weight="normal">"add --since 2h"</text>
+<line x1="200" y1="122" x2="350" y2="122" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="207" y="102" width="346" height="18" fill="#14161c"/>
+<text x="212" y="116" font-size="12" fill="#8b919c" text-anchor="start" font-weight="normal">where is time parsed? which tests cover flags?</text>
+<line x1="350" y1="160" x2="200" y2="160" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<rect x="207" y="140" width="368" height="18" fill="#14161c"/>
+<text x="212" y="154" font-size="12" fill="#98c379" text-anchor="start" font-weight="normal">parse.go:41 · flags.go:12 · no relative-time test</text>
+<line x1="200" y1="206" x2="500" y2="206" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="207" y="186" width="360" height="18" fill="#14161c"/>
+<text x="212" y="200" font-size="12" fill="#8b919c" text-anchor="start" font-weight="normal">spec: files · constraints · done · tests to pass</text>
+<line x1="500" y1="244" x2="200" y2="244" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<rect x="207" y="224" width="280" height="18" fill="#14161c"/>
+<text x="212" y="238" font-size="12" fill="#61afef" text-anchor="start" font-weight="normal">4 tests added, all fail: flag unknown</text>
+<line x1="200" y1="290" x2="660" y2="290" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="207" y="270" width="141" height="18" fill="#14161c"/>
+<text x="212" y="284" font-size="12" fill="#8b919c" text-anchor="start" font-weight="normal">spec + the 4 tests</text>
+<line x1="660" y1="328" x2="200" y2="328" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<rect x="207" y="308" width="331" height="18" fill="#14161c"/>
+<text x="212" y="322" font-size="12" fill="#e5c07b" text-anchor="start" font-weight="normal">done · go test ./... green · 3 files changed</text>
+<line x1="200" y1="374" x2="820" y2="374" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="207" y="354" width="90" height="18" fill="#14161c"/>
+<text x="212" y="368" font-size="12" fill="#8b919c" text-anchor="start" font-weight="normal">spec + diff</text>
+<line x1="820" y1="412" x2="200" y2="412" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<rect x="207" y="392" width="39" height="18" fill="#14161c"/>
+<text x="212" y="406" font-size="12" fill="#e5c07b" text-anchor="start" font-weight="normal">PASS</text>
+<line x1="200" y1="458" x2="960" y2="458" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="207" y="438" width="331" height="18" fill="#14161c"/>
+<text x="212" y="452" font-size="12" fill="#8b919c" text-anchor="start" font-weight="normal">the change builds an ssh argv: security pass</text>
+<line x1="960" y1="496" x2="200" y2="496" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<rect x="207" y="476" width="192" height="18" fill="#14161c"/>
+<text x="212" y="490" font-size="12" fill="#e5c07b" text-anchor="start" font-weight="normal">PASS · no secrets in argv</text>
+<line x1="200" y1="542" x2="50" y2="542" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="57" y="522" width="295" height="18" fill="#14161c"/>
+<text x="62" y="536" font-size="12" fill="#c678dd" text-anchor="start" font-weight="normal">done: 3 files · 4 new tests · 2 reviews</text>
+<text x="520" y="626" font-size="12" fill="#8b919c" text-anchor="middle" font-weight="normal">six handoffs · Fable wrote one spec and read five short reports · solid = request, dashed = report</text>
+</svg>

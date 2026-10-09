@@ -138,72 +138,15 @@ Global bench applies (`senior`, `mid`, `junior`, `reviewer`, `qa`, `scout`). Pro
 
 The team:
 
-```
-                            you
-                             |
-                    +--------+--------+
-                    |    architect    |   Fable, the main session
-                    | specs . routes  |   staffed this project
-                    | reads verdicts  |
-                    +--------+--------+
-                             |
-        +--------------------+---------------------------+
-        |                                                |
-  the bench (every project)                 logsieve roles (this project)
-  -------------------------                 -----------------------------
-  senior    Opus    builds features         cli-developer       Opus    senior
-  mid       Sonnet  contained changes       alert-rules-author  Sonnet  mid
-  junior    Haiku   chores                  security-reviewer   Opus    senior, read-only
-  reviewer  Opus    read-only
-  qa        Sonnet  tests first
-  scout     Haiku   read-only
-```
+![The team: you, the architect, the bench of six, and the three logsieve roles](docs/img/team.svg)
 
 One feature, `--since 2h`, from request to done:
 
-```
- you        architect          scout        qa         cli-developer     reviewer    security-reviewer
-  |  "add --since 2h"  |
-  |------------------->|
-  |                    | where is time parsed? which tests cover flags?
-  |                    |----------->|
-  |                    |<-----------| parse.go:41, flags.go:12; no relative-time test
-  |                    | spec: files, constraints, done, tests to pass
-  |                    |------------------------>|
-  |                    |<------------------------| 4 tests added, all fail: flag unknown
-  |                    | spec + the 4 tests
-  |                    |------------------------------------->|
-  |                    |<-------------------------------------| done; go test ./... green
-  |                    | spec + diff
-  |                    |-------------------------------------------------->|
-  |                    |<--------------------------------------------------| PASS
-  |                    | the change builds an ssh argv: security pass
-  |                    |----------------------------------------------------------------->|
-  |                    |<-----------------------------------------------------------------| PASS
-  |<-------------------|
-  |  done: 3 files, 4 new tests, 2 reviews
-```
+![Sequence of work for one feature, from request to done, across seven lanes](docs/img/sequence.svg)
 
 A chore that goes wrong, and climbs the ladder:
 
-```
- junior (Haiku)      rename pkg/filter -> pkg/sieve, fix imports, run tests
-       |             2 tests fail: cannot find package
-       |             attempt 1: a missed import                     -> 1 test still fails
-       |             attempt 2: package name built from a string
-       |                        in rules.yaml; not sure what else reads it
-       |             STOP. report: what failed, two attempts, hypothesis,
-       |                   "looks mechanical", files touched
-       v
- architect           mechanical -> next level up, no skip
-       v
- mid (Sonnet)        greps the string, fixes rules.yaml and one fixture
-       |             go test ./... green
-       v
- architect           junior chore, no reviewer needed. tells you.
-
- cost: one Haiku run, one Sonnet run. the senior was never involved.
-```
+![The escalation ladder: a junior chore that climbs to the mid and stops there](docs/img/ladder.svg)
 
 ## Undo
 
