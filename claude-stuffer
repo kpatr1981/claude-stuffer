@@ -181,7 +181,7 @@ PRODUCTION_LINE = ("Production: this project touches live systems. Change nothin
 NO_TESTS_NOTICE = "No tests: code changes will be routed to the senior and every spec must say how to verify."
 INIT_HINT = ('Default model: set `"model": "claude-fable-5-1"` in ~/.claude/settings.json '
              "or run /model claude-fable-5-1 in a session.\n"
-             "Check with /agents in a new session.")
+             "Check with claude-stuffer show, or start a new session; agents are loaded at startup.")
 
 
 # Ticket folder templates (`claude-stuffer ticket SLUG`).
@@ -1074,7 +1074,7 @@ def cmd_staff(args):
     print(describe(actions, dry_run=False))
     if leftovers:
         print("remove by hand: " + " ".join(display_path(p) for p in leftovers))
-    print("Check with /agents in a new session.")
+    print("Check with claude-stuffer show, or start a new session; agents are loaded at startup.")
     return EXIT_OK
 
 

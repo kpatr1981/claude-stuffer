@@ -545,7 +545,7 @@ class TestInit(Base):
 
     def test_init_prints_default_model_hint(self):
         r = self.init()
-        self.assertIn("/agents", r.stdout)
+        self.assertIn("claude-stuffer show", r.stdout)
 
     def test_init_dry_run_writes_nothing(self):
         r = self.init("--dry-run")

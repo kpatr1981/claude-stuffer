@@ -42,7 +42,7 @@ Rules the architect follows, installed by `init`:
 | `claude-stuffer ticket <slug>` | `<project>/docs/tickets/` | that folder only |
 | `claude-stuffer show` | nothing | reads that folder |
 
-The per-project commands never touch `~/.claude`, and `init` never touches a project. Skipping `init` still works: the project command only warns that the bench is missing.
+The per-project commands never touch `~/.claude`, and `init` never touches a project. Skipping `init` still works: the project command only warns that the bench is missing. Claude Code's `/agents` wizard has been removed; the official way to add or change subagents is now to edit these files, which is what this tool does.
 
 ## Install
 
@@ -161,7 +161,7 @@ Staffed logsieve:
   wrote        .claude/agents/security-reviewer.md
   wrote        .claude/agents/alert-rules-author.md
   updated      CLAUDE.md
-Check with /agents in a new session.
+Check with claude-stuffer show, or start a new session; agents are loaded at startup.
 ```
 
 Notice the kind: the folder has an `ops/` directory, so the tool guessed `infra`, and I corrected it to `cli`. Detection gives defaults, it does not decide. The block it added to the project's `CLAUDE.md` is what the architect reads at the start of every session:
