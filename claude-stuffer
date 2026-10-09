@@ -2,12 +2,13 @@
 """claude-stuffer: staff a Claude Code project with a team of subagents.
 
 Team by seniority: the main session is the architect (Fable); the global bench
-(senior/Opus, mid/Sonnet, junior/Haiku, plus reviewer, qa and scout) lives in
+(senior/Opus, mid/Sonnet, junior/Haiku, plus reviewer, qa, scout and pm) lives in
 ~/.claude/agents; each project gets its own domain roles in .claude/agents.
 
-  claude-stuffer            interview in the current folder, then write the team
-  claude-stuffer init       install or update the global bench in ~/.claude
-  claude-stuffer show       print the project's current team
+  claude-stuffer               interview in the current folder, then write the team
+  claude-stuffer init          install or update the global bench in ~/.claude
+  claude-stuffer show          print the project's current team
+  claude-stuffer ticket SLUG   create docs/tickets/SLUG/spec.md (plus LOG.md, FACTS.md)
 
 Standard library only. Never deletes a file; never overwrites a file it did not
 generate. See https://github.com/kpatr1981/claude-stuffer
@@ -21,7 +22,7 @@ import os
 import re
 import sys
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 EXIT_OK, EXIT_ABORT, EXIT_USAGE = 0, 1, 2
 
@@ -31,12 +32,13 @@ RULES_START, RULES_END = "<!-- claude-stuffer:rules -->", "<!-- /claude-stuffer:
 LEVEL_MODEL = {"senior": "opus", "mid": "sonnet", "junior": "haiku"}
 MODEL_LEVEL = {model: level for level, model in LEVEL_MODEL.items()}
 LEVELS = ["senior", "mid", "junior"]
-ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
+ROLE_NAME_RE = re.compile(r"[a-z][a-z0-9-]{1,40}")  # always used with fullmatch
+SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,60}")  # always used with fullmatch
 
 IGNORED_DIRS = {".git", "node_modules", "venv", ".venv", "__pycache__", "build", "dist"}
 MAX_FILES = 50000
 
-BENCH_NAMES = ["senior", "mid", "junior", "reviewer", "qa", "scout"]
+BENCH_NAMES = ["senior", "mid", "junior", "reviewer", "qa", "scout", "pm"]
 
 
 class UsageError(Exception):
@@ -138,7 +140,7 @@ ROLES = {
          "Cut what does not earn its place.",
          "List every change and why."]),
     "security-reviewer": _role(
-        "senior", "Reviews changes for leaked secrets, trust boundaries, dependency fetching and credential permissions; read-only",
+        "senior", "Reviews changes for leaked secrets, trust boundaries, dependency fetching and credential permissions; no code edits",
         ["Look for secrets or tokens on a command line, in logs, or in saved configs.",
          "Check trust boundaries and input validation.",
          "Check dependency fetching: pinning, checksums, HTTPS.",
@@ -182,6 +184,38 @@ INIT_HINT = ('Default model: set `"model": "claude-fable-5-1"` in ~/.claude/sett
              "Check with /agents in a new session.")
 
 
+# Ticket folder templates (`claude-stuffer ticket SLUG`).
+TICKET_SPEC = """\
+# {slug}
+
+## What
+(one paragraph: the change, in the user's words)
+
+## Files
+- (every file to touch; a builder that needs another one stops and reports)
+
+## Constraints
+- (what must not change, style, dependencies)
+
+## Done means
+- (observable results)
+
+## Tests that must pass
+- `(command)` (or: no suite; verify by: ...)
+
+## Notes
+(anything the scout found, links, decisions)
+"""
+TICKET_LOG = """\
+# Ticket log
+
+| date | slug | built by | escalations | verdicts |
+|---|---|---|---|---|
+"""
+TICKET_FACTS = "# Project facts (appended by the scout)\n\n"
+TICKET_NEXT = "Next: fill spec.md, then hand the folder to qa."
+
+
 # --------------------------------------------------------------------------
 # Global bench (embedded verbatim from the author's ~/.claude/agents)
 # --------------------------------------------------------------------------
@@ -194,6 +228,8 @@ description: Senior engineer (Opus). Builds features from a finished spec, chang
 model: opus
 ---
 You are the senior engineer. Implement the spec you are given, exactly and completely. Write tests for what you build and run the full relevant test suite. If the project has no test suite, verify the way the spec says (run the script, hit the endpoint, check the output) and include that output in your report.
+
+The handoff names a ticket folder (docs/tickets/<slug>/). Read spec.md and tests.md there first, and build.md if a lower level already tried. Write your full report to build.md in that folder (append, with a heading naming your level) and reply in chat with one line: the verdict and the path. Scope guard: if the work needs a file the spec does not list, stop and report instead of widening the change.
 
 If you were handed a failure report from a more junior level, start from its hypothesis and the state it describes. Do not redo work it already did.
 
@@ -213,6 +249,8 @@ model: sonnet
 ---
 You are the mid-level engineer. Do the task in the spec and nothing beyond it. Run the relevant tests.
 
+The handoff names a ticket folder (docs/tickets/<slug>/). Read spec.md and tests.md there first, and build.md if a lower level already tried. Write your full report to build.md in that folder (append, with a heading naming your level) and reply in chat with one line: the verdict and the path. Scope guard: if the work needs a file the spec does not list, stop and report instead of widening the change.
+
 If you were handed a failure report from the junior level, start from its hypothesis and the state it describes. Do not redo work it already did.
 
 If tests fail: analyze the failure and fix it. You get two attempts. If tests still fail after the second, stop. Leave your changes in place and report:
@@ -231,7 +269,9 @@ name: junior
 description: Junior engineer (Haiku). Mechanical chores: renames, formatting, moving files, README/PENDING.md updates, git housekeeping, running a command and reporting output.
 model: haiku
 ---
-You are the junior engineer. Do the small task asked, nothing more. If the task says to run tests, run them.
+You are the junior engineer. Do the small task asked, nothing more. A ticket may batch several chores; do them all, one commit-sized change each, and report each. If the task says to run tests, run them.
+
+The handoff names a ticket folder (docs/tickets/<slug>/). Read spec.md and tests.md there first, and build.md if a lower level already tried. Write your full report to build.md in that folder (append, with a heading naming your level) and reply in chat with one line: the verdict and the path. Scope guard: if the work needs a file the spec does not list, stop and report instead of widening the change.
 
 If tests fail: look at the failure and try to fix it. You get two attempts. If tests still fail after the second, stop. Leave your changes in place and report:
 1. What failed: test names and the actual error output.
@@ -246,11 +286,13 @@ Report format on success: what changed, what you ran and its output.
     "reviewer": """\
 ---
 name: reviewer
-description: Reviewer (Opus, senior level, read-only). Checks a finished change against its spec and tests before the architect accepts it. Use after `senior` or `mid` reports done.
+description: Reviewer (Opus, senior level, no code edits). Checks a finished change against its spec and tests before the architect accepts it. Use after `senior` or `mid` reports done.
 model: opus
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Write
 ---
-You are the reviewer. You are given a spec, the list of changed files and the report from whoever did the work. Read the diff, run the tests named in the spec, and judge the change against the spec. Never modify a file. If you see a fix, describe it, don't make it.
+You are the reviewer. You are given a ticket folder (docs/tickets/<slug>/): spec.md, tests.md and build.md are there. Write your full report to review.md in that folder and reply in chat with one line: PASS or FAIL and the path.
+
+You are given a spec, the list of changed files and the report from whoever did the work. Read the diff, run the tests named in the spec, and judge the change against the spec. Never modify a project file; review.md in the ticket folder is the only thing you write. If you see a fix, describe it, don't make it.
 
 Check, in this order:
 1. Does the change do what the spec says, all of it, and nothing the spec didn't ask for?
@@ -266,7 +308,9 @@ name: qa
 description: QA engineer (Sonnet, mid level). Writes the tests from a finished spec before anyone builds, and runs them to confirm they fail for the right reason.
 model: sonnet
 ---
-You are the QA engineer. You are given a spec. Write the tests that define "done" for that spec, in the project's existing test framework and style, before any implementation exists. Do not write the implementation.
+You are the QA engineer. You are given a ticket folder (docs/tickets/<slug>/); read spec.md and scout.md there. Write your report to tests.md in that folder and reply in chat with one line: the verdict and the path.
+
+You are given a spec. Write the tests that define "done" for that spec, in the project's existing test framework and style, before any implementation exists. Do not write the implementation.
 
 Rules:
 - One test per requirement in the spec. Name each test after the requirement it checks.
@@ -279,13 +323,33 @@ Report: the test files you added, what each test checks, and the current failure
     "scout": """\
 ---
 name: scout
-description: Scout (Haiku, junior level, read-only). Answers the architect's questions about the codebase before a spec is written: where something is used, what calls it, which tests cover it.
+description: Scout (Haiku, junior level, no code edits). Answers the architect's questions about the codebase before a spec is written: where something is used, what calls it, which tests cover it.
 model: haiku
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, Write, Edit
 ---
-You are the scout. Answer the question you are asked about the codebase by reading and searching. Never modify anything.
+You are the scout. Answer the question you are asked about the codebase by reading and searching. Read docs/tickets/FACTS.md first if it exists; it holds facts earlier scouts found. Write your answer to scout.md in the ticket folder named in the handoff, append any durable fact (where something lives, which tests cover what) as one line to docs/tickets/FACTS.md, and reply in chat with one line: done and the path. Those two files are the only things you ever write.
 
 Report facts with file paths and line numbers. Quote the relevant lines rather than paraphrasing them. If the question is "why" rather than "where" or "what", answer what you can see and say that the rest needs someone more senior. Do not guess.
+""",
+    "pm": """\
+---
+name: pm
+description: Project manager (Sonnet, mid level). Keeps the backlog and the ticket records straight, grooms items until they are ticket-ready, and writes status. Never code, never priorities.
+model: sonnet
+tools: Read, Grep, Glob, Write, Edit
+---
+You are the project manager. You keep the record so the architect does not have to. You never write code, never change priorities on your own, and never close an item without a reviewer PASS or the user's say-so.
+
+What you maintain:
+- The project's PENDING.md: `- [ ]` items, one per piece of work, ticked when done, with the ticket slug in the line once a ticket exists.
+- docs/tickets/LOG.md: one line per finished ticket (date, slug, who built it, escalations, verdicts), appended when the architect tells you a ticket is done.
+- docs/tickets/: when a ticket is finished and logged, say so; do not delete folders.
+
+Grooming: when asked, go through PENDING.md and make each item ticket-ready: what, where (files), what "done" looks like. Split an item that is more than one ticket. Flag an item that is missing information or a decision as "needs: <what>" rather than guessing. Mark who is being waited on.
+
+Status: when asked, one screen: done since last time, in progress (ticket, who), blocked (on whom, since when), next three. Numbers come from the files, not from memory.
+
+Report: what you changed, file by file, and the questions that need the user.
 """,
 }
 
@@ -312,12 +376,26 @@ RULES = """\
     `senior` builds this one, `reviewer` and a security reviewer on the same diff). Never two
     writers on overlapping files: serialize them or give each a git worktree. Ladder steps
     (qa → builder → reviewer, and every escalation) are always sequential.
+- Handoffs carry context in files, not in chat. One folder per ticket: `docs/tickets/<slug>/`
+  with `spec.md` (architect), `scout.md`, `tests.md` (qa), `build.md` (builder), `review.md`
+  (reviewer). Each handoff names the folder and the file to read; each report is written to the
+  folder and the chat reply is one line: verdict plus path. On escalation the next level reads
+  `build.md` as it stands. `claude-stuffer ticket <slug>` creates the folder with the spec template.
+  - Scope guard: a builder that needs a file the spec does not list stops and reports instead of
+    widening the change.
+  - Batch chores: several junior-sized tasks in one project go to one `junior` run as one ticket.
+  - Records: the architect appends one line per finished ticket to `docs/tickets/LOG.md`
+    (date, slug, who built it, escalations, verdicts). The scout appends durable facts it finds
+    (where things live, which tests cover what) to `docs/tickets/FACTS.md` and reads it first next time.
 - Roles beside the ladder (not levels, they do not escalate through each other):
-  - `scout` (Haiku, read-only): answers codebase questions before a spec is written.
+  - `scout` (Haiku, no code edits, writes only scout.md and FACTS.md): answers codebase questions before a spec is written.
     Use it instead of reading files in the main session.
   - `qa` (Sonnet): writes the tests from the spec before the builder starts, for any
     task going to `mid` or `senior`. Broken tests are a mid-level failure: escalate to `senior`.
-  - `reviewer` (Opus, read-only): checks every `mid` and `senior` change against the spec
+  - `pm` (Sonnet): keeps PENDING.md, docs/tickets/LOG.md and ticket status; grooms backlog items
+    until they are ticket-ready; writes status on request. No code, no priority changes, closes
+    nothing without a reviewer PASS or the user's word. The architect hands it the bookkeeping.
+  - `reviewer` (Opus, no code edits, writes only review.md): checks every `mid` and `senior` change against the spec
     and tests before the architect accepts it. A reviewer FAIL that says "mechanical" goes
     back to the author; "logic" goes one level up. `junior` chores skip `qa` and `reviewer`.
 - Staffing. The architect (Fable) is also the engineering lead: it decides the team per project.
@@ -325,8 +403,8 @@ RULES = """\
     in its folder; it asks about the project and writes the team. Confirm the proposed
     roles with the user before writing.
   - Then write the agents to `<project>/.claude/agents/` and the routing additions to the
-    project's `CLAUDE.md`. Never add project roles to `~/.claude/agents/`; the global six
-    (`senior`, `mid`, `junior`, `reviewer`, `qa`, `scout`) are the bench every project gets.
+    project's `CLAUDE.md`. Never add project roles to `~/.claude/agents/`; the global seven
+    (`senior`, `mid`, `junior`, `reviewer`, `qa`, `scout`, `pm`) are the bench every project gets.
   - A role is a prompt with domain knowledge, not a level. The level (model) is still chosen
     per task by judgement needed. A role exists only if the backlog has tasks for it.
   - Revisit the team when the backlog changes shape; remove roles that stopped being called.
@@ -623,7 +701,7 @@ def render_agent(plan, role):
 
 def render_team_block(plan):
     lines = ["## Team (staffed %s by claude-stuffer)" % today(), "",
-             "Global bench applies (`senior`, `mid`, `junior`, `reviewer`, `qa`, `scout`). "
+             "Global bench applies (`senior`, `mid`, `junior`, `reviewer`, `qa`, `scout`, `pm`). "
              "Project roles, level chosen per task by the architect:", ""]
     for role in plan["roles"]:
         lines.append("- `%s` (%s; %s): %s." % (
@@ -654,9 +732,10 @@ def upsert_block(text, start, end, body):
 
 
 def bench_text(name):
-    """A bench agent with the generated-by marker as the first body line."""
+    """A bench agent with the generated-by marker as the first body line, exactly once."""
     m = re.match(r"(---\n.*?\n---\n)(.*)", BENCH[name], re.S)
-    return m.group(1) + marker_line() + "\n" + m.group(2)
+    body = re.sub(r"(?m)^<!-- generated by claude-stuffer on .*?-->\n?", "", m.group(2))
+    return m.group(1) + marker_line() + "\n" + body
 
 
 # --------------------------------------------------------------------------
@@ -734,8 +813,8 @@ def catalog_role(name, level=None):
 def custom_role(entry):
     if not isinstance(entry, dict):
         raise UsageError("custom_roles entries must be objects")
-    name = (str_field(entry.get("name"), "custom role name") or "").strip()
-    if not ROLE_NAME_RE.match(name):
+    name = str_field(entry.get("name"), "custom role name") or ""  # validated as-is, no stripping
+    if not ROLE_NAME_RE.fullmatch(name):
         raise UsageError("bad custom role name %r (lowercase letters, digits, hyphens)" % name)
     level = (str_field(entry.get("level"), "level of " + name) or "mid").strip()
     if level not in LEVEL_MODEL:
@@ -914,7 +993,7 @@ def interview(detected, io):
         role_name = io.ask("  Role name (lowercase, hyphens)")
         if not role_name:
             break
-        if not ROLE_NAME_RE.match(role_name) or role_name in taken:
+        if not ROLE_NAME_RE.fullmatch(role_name) or role_name in taken:
             print("  use 2-41 characters: lowercase letters, digits, hyphens; not a name already chosen")
             continue
         line = ""
@@ -1014,6 +1093,40 @@ def cmd_init(args):
     return EXIT_OK
 
 
+def cmd_ticket(args):
+    """Create docs/tickets/SLUG/spec.md, and LOG.md / FACTS.md if missing. Never touches existing files."""
+    slug = args.slug
+    if not SLUG_RE.fullmatch(slug):
+        raise UsageError("bad ticket slug %r (lowercase letters, digits, hyphens; 2-61 characters)" % slug)
+    project = os.path.abspath(args.project or os.getcwd())
+    if not os.path.isdir(project):
+        raise UsageError("no such folder: %s" % project)
+    tickets = os.path.join(project, "docs", "tickets")
+    if os.path.lexists(os.path.join(project, "docs")) or os.path.lexists(tickets):
+        root = os.path.realpath(project)
+        if not os.path.realpath(tickets).startswith(root + os.sep):
+            raise UsageError("docs/tickets points outside the project")
+    folder = os.path.join(tickets, slug)
+    if os.path.lexists(folder):
+        raise UsageError("ticket exists: %s" % display_path(folder))
+    files = [(os.path.join(folder, "spec.md"), TICKET_SPEC.format(slug=slug)),
+             (os.path.join(tickets, "LOG.md"), TICKET_LOG),
+             (os.path.join(tickets, "FACTS.md"), TICKET_FACTS)]
+    for path, content in files:
+        exists = os.path.lexists(path)
+        if exists:
+            label = "kept"
+        else:
+            label = "would write" if args.dry_run else "wrote"
+            if not args.dry_run:
+                write_text(path, content)
+        print("  %-12s %s" % (label, display_path(path)))
+    if args.dry_run:
+        print("Dry run: nothing written.")
+    print(TICKET_NEXT)
+    return EXIT_OK
+
+
 def parse_frontmatter(text):
     m = re.match(r"---\n(.*?)\n---\n", text, re.S)
     out = {}
@@ -1081,11 +1194,15 @@ def build_parser():
     parser.add_argument("--version", action="version", version="claude-stuffer " + VERSION)
     parser.add_argument("--kinds", action="store_true", help="list project kinds and the roles each proposes")
     add_common(parser, suppress=False)
-    sub = parser.add_subparsers(dest="command", metavar="{init,show}")
+    sub = parser.add_subparsers(dest="command", metavar="{init,show,ticket}")
     p_init = sub.add_parser("init", help="install or update the global bench in ~/.claude")
     add_common(p_init, suppress=True)
     p_show = sub.add_parser("show", help="print the project's current team")
     add_common(p_show, suppress=True)
+    p_ticket = sub.add_parser("ticket", help="create docs/tickets/SLUG/spec.md from the template "
+                                              "(plus LOG.md and FACTS.md if missing)")
+    p_ticket.add_argument("slug", metavar="SLUG", help="ticket name: lowercase letters, digits, hyphens")
+    add_common(p_ticket, suppress=True)
     return parser
 
 
@@ -1098,6 +1215,8 @@ def main(argv=None):
             return cmd_init(args)
         if args.command == "show":
             return cmd_show(args)
+        if args.command == "ticket":
+            return cmd_ticket(args)
         return cmd_staff(args)
     except UsageError as exc:
         sys.stderr.write("claude-stuffer: error: %s\n" % exc)

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="980" height="560" viewBox="0 0 980 560" font-family="SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#e6e6e6">
-<rect width="980" height="560" rx="10" fill="#14161c"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="598" viewBox="0 0 980 598" font-family="SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#e6e6e6">
+<rect width="980" height="598" rx="10" fill="#14161c"/>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9aa0a6"/></marker></defs>
 <rect x="440" y="24" width="100" height="36" rx="6" fill="#1c1f27" stroke="#9aa0a6" stroke-width="1.5"/>
 <text x="490.0" y="46.7" text-anchor="middle" font-size="14" fill="#e6e6e6">you</text>
@@ -12,7 +12,7 @@
 <line x1="250" y1="200" x2="730" y2="200" stroke="#9aa0a6" stroke-width="1.5"/>
 <line x1="250" y1="200" x2="250" y2="232" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
 <line x1="730" y1="200" x2="730" y2="232" stroke="#9aa0a6" stroke-width="1.5" marker-end="url(#a)"/>
-<rect x="40" y="234" width="420" height="296" rx="8" fill="#1c1f27" stroke="#9aa0a6"/>
+<rect x="40" y="234" width="420" height="334" rx="8" fill="#1c1f27" stroke="#9aa0a6"/>
 <text x="250" y="262" font-size="15" fill="#e6e6e6" text-anchor="middle" font-weight="bold">the bench · every project</text>
 <text x="64" y="300" font-size="14" fill="#e6e6e6" text-anchor="start" font-weight="normal">senior</text>
 <text x="170" y="300" font-size="14" fill="#e5c07b" text-anchor="start" font-weight="normal">Opus</text>
@@ -45,5 +45,8 @@
 <text x="790" y="376" font-size="12" fill="#8b919c" text-anchor="start" font-weight="normal">senior, read-only</text>
 <text x="730" y="450" font-size="12" fill="#8b919c" text-anchor="middle" font-weight="normal">written by claude-stuffer</text>
 <text x="730" y="470" font-size="12" fill="#8b919c" text-anchor="middle" font-weight="normal">into .claude/agents/ and CLAUDE.md</text>
-<text x="490" y="548" font-size="12" fill="#8b919c" text-anchor="middle" font-weight="normal">levels pick the model · roles carry the domain knowledge</text>
+<text x="64" y="528" font-size="14" fill="#e6e6e6" text-anchor="start" font-weight="normal">pm</text>
+<text x="170" y="528" font-size="14" fill="#61afef" text-anchor="start" font-weight="normal">Sonnet</text>
+<text x="250" y="528" font-size="13" fill="#8b919c" text-anchor="start" font-weight="normal">backlog · log · status</text>
+<text x="490" y="586" font-size="12" fill="#8b919c" text-anchor="middle" font-weight="normal">levels pick the model · roles carry the domain knowledge</text>
 </svg>

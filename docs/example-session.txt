@@ -1,4 +1,4 @@
-claude-stuffer 0.1.0: staffing a project. Enter accepts the default in brackets.
+claude-stuffer 0.2.0: staffing a project. Enter accepts the default in brackets.
 
 Project name [logsieve]: 
 What is it, in one line [Tails and filters logs from several hosts over SSH.]: 
@@ -20,7 +20,7 @@ Touches production systems (servers, cron, live databases)? [Y/n] y
 Documents a role must read first, comma separated [README.md, docs/design.md]: 
 Keep cli-developer (senior): Builds the command-line tool: flags, help text, exit codes and the non-interactive mode? [Y/n] y
 Add site-ops (mid): Runs and changes servers and deployments (use senior for production changes)? [y/N] n
-Add security-reviewer (senior): Reviews changes for leaked secrets, trust boundaries, dependency fetching and credential permissions; read-only? [y/N] y
+Add security-reviewer (senior): Reviews changes for leaked secrets, trust boundaries, dependency fetching and credential permissions; no code edits? [y/N] y
 Custom roles (blank name to finish).
   Role name (lowercase, hyphens): alert-rules-author
   What it does (one line): writes alert rules and their fixtures from real log samples
@@ -44,10 +44,10 @@ Check with /agents in a new session.
 <!-- claude-stuffer:team -->
 ## Team (staffed 2026-10-10 by claude-stuffer)
 
-Global bench applies (`senior`, `mid`, `junior`, `reviewer`, `qa`, `scout`). Project roles, level chosen per task by the architect:
+Global bench applies (`senior`, `mid`, `junior`, `reviewer`, `qa`, `scout`, `pm`). Project roles, level chosen per task by the architect:
 
 - `cli-developer` (Opus; senior): Builds the command-line tool: flags, help text, exit codes and the non-interactive mode.
-- `security-reviewer` (Opus; senior): Reviews changes for leaked secrets, trust boundaries, dependency fetching and credential permissions; read-only.
+- `security-reviewer` (Opus; senior): Reviews changes for leaked secrets, trust boundaries, dependency fetching and credential permissions; no code edits.
 - `alert-rules-author` (Sonnet; mid): Writes alert rules and their fixtures from real log samples.
 - Production: changes are specified, backed up and verified one at a time; the user applies anything the spec marks as manual.
 <!-- /claude-stuffer:team -->
