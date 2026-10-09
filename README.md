@@ -37,7 +37,7 @@ Rules the architect follows, installed by `init`:
 
 | Command | Writes to | Scope |
 |---|---|---|
-| `claude-stuffer init` | `~/.claude/agents/` (the seven bench files) and a marked block in `~/.claude/CLAUDE.md` | global, once per machine |
+| `claude-stuffer init` | `~/.claude/agents/` (the seven bench files), `~/.claude/hooks/context-guard.py` and a marked block in `~/.claude/CLAUDE.md` | global, once per machine |
 | `claude-stuffer` | `<project>/.claude/agents/` and a marked block in `<project>/CLAUDE.md` | that folder only |
 | `claude-stuffer ticket <slug>` | `<project>/docs/tickets/` | that folder only |
 | `claude-stuffer show` | nothing | reads that folder |
@@ -74,7 +74,7 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 
 Then run `claude-stuffer init`.
 
-`init` writes the seven bench agents to `~/.claude/agents/` and the routing rule into `~/.claude/CLAUDE.md`, inside a marked block so it can be updated later. Existing files are kept unless you pass `--force`. Set Opus as the default model with `"model": "claude-opus-5-5"` in `~/.claude/settings.json`, or `/model claude-opus-5-5` in a session.
+`init` writes the seven bench agents to `~/.claude/agents/`, the optional context guard to `~/.claude/hooks/context-guard.py` (see [Context guard](#context-guard)) and the routing rule into `~/.claude/CLAUDE.md`, inside a marked block so it can be updated later. Existing files are kept unless you pass `--force`. Set Opus as the default model with `"model": "claude-opus-5-5"` in `~/.claude/settings.json`, or `/model claude-opus-5-5` in a session.
 
 ## Staff a project
 
@@ -112,7 +112,25 @@ Re-running in the same folder is how you revisit the team. Generated files you h
 
 Subagents share the working tree, so context passes through files, not chat. `claude-stuffer ticket <slug>` creates `docs/tickets/<slug>/spec.md` with the four parts of a spec, plus What and Notes, as headings, plus `docs/tickets/LOG.md` (one line per finished ticket) and `docs/tickets/FACTS.md` (durable facts the scout appends) if they are missing. Each agent writes its report to the ticket folder (`scout.md`, `tests.md`, `build.md`, `review.md`) and replies in chat with one line: verdict and path. The bench prompts installed by `init` already say so.
 
-Also in the rule: a builder that needs a file the spec does not list stops instead of widening the change; several junior chores in one project go into one ticket; the `pm` role keeps `PENDING.md` and `LOG.md` so the architect does not. And a cost note: parallel saves time, not tokens, because each agent pays for its own transcript on every tool call, so keep scout questions to three or four per ticket, `/compact` once a ticket closes, and keep the ladder for features: a change smaller than its spec goes to one junior or is made in place.
+Also in the rule: a builder that needs a file the spec does not list stops instead of widening the change; several junior chores in one project go into one ticket; the `pm` role keeps `PENDING.md` and `LOG.md` so the architect does not. And a cost note: parallel saves time, not tokens, because each agent pays for its own transcript on every tool call, so keep scout questions to three or four per ticket, `/compact` once a ticket closes or once the context passes 150k (whichever comes first), never poll a running builder (wait for its completion notice; background agents report back on their own), and keep the ladder for features: a change smaller than its spec goes to one junior or is made in place.
+
+## Context guard
+
+The architect's own transcript is where most of the money goes: every tool call re-sends it, and a long session is almost all cache reads. A measurement over two days put the main session at 59% of all spend (86% counting one 963k-token session). So the rule names two triggers for `/compact`: a ticket closed, or the context past 150k tokens. And it forbids polling a running builder: each check re-sends the whole transcript, while the builder announces itself when it finishes.
+
+To enforce the second trigger, `init` writes an optional `UserPromptSubmit` hook to `~/.claude/hooks/context-guard.py`. Before each prompt it reads the session transcript, takes the last assistant message's usage (input + cache read + cache creation tokens) and, past the threshold, prints one line that Claude Code adds to the context:
+
+```
+Context is 183k tokens (> 150k). Finish or close the current ticket, then /compact.
+```
+
+Under the threshold, or on any error, it prints nothing and exits 0, so it never blocks a prompt. Set `CLAUDE_CONTEXT_GUARD=<tokens>` to change the threshold. `init` does not edit `settings.json`; it prints the lines to add, under `"hooks"` in `~/.claude/settings.json`:
+
+```json
+"UserPromptSubmit": [
+  {"hooks": [{"type": "command", "command": "python3 \"/Users/you/.claude/hooks/context-guard.py\""}]}
+]
+```
 
 ## Example: logsieve
 
@@ -191,7 +209,7 @@ A chore that goes wrong, and climbs the ladder:
 
 ## Undo
 
-Delete the files it told you it wrote: the role files under `<project>/.claude/agents/` and the block between `<!-- claude-stuffer:team -->` and `<!-- /claude-stuffer:team -->` in the project's `CLAUDE.md`. For `init`, the seven bench files in `~/.claude/agents/` and the block between `<!-- claude-stuffer:rules -->` and `<!-- /claude-stuffer:rules -->` in `~/.claude/CLAUDE.md`.
+Delete the files it told you it wrote: the role files under `<project>/.claude/agents/` and the block between `<!-- claude-stuffer:team -->` and `<!-- /claude-stuffer:team -->` in the project's `CLAUDE.md`. For `init`, the seven bench files in `~/.claude/agents/`, `~/.claude/hooks/context-guard.py` (and its `UserPromptSubmit` entry in `settings.json`, if you added one) and the block between `<!-- claude-stuffer:rules -->` and `<!-- /claude-stuffer:rules -->` in `~/.claude/CLAUDE.md`.
 
 ## Development
 

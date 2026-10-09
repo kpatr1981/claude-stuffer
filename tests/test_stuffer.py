@@ -252,10 +252,10 @@ class TestCli(Base):
             for role in roles:
                 self.assertIn(role, r.stdout)
 
-    def test_version_prints_0_2_5(self):
+    def test_version_prints_0_2_6(self):
         r = run(["--version"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("0.2.5", r.stdout + r.stderr)
+        self.assertIn("0.2.6", r.stdout + r.stderr)
 
     def test_help_mentions_ticket(self):
         r = run(["--help"])
@@ -1019,6 +1019,184 @@ class TestReview(Base):
     def test_kind_library_from_setup_py_without_main(self):
         self._kind_files({"setup.py": "from setuptools import setup\n", "pkg/__init__.py": ""},
                          "library-developer")
+
+
+class CompactRule(Base):
+    """compact-rule ticket: Cost wording and the context-guard hook."""
+
+    def init(self, *extra):
+        return run(["init"] + list(extra), cwd=self.tmp, home=self.home)
+
+    def hook_path(self):
+        return os.path.join(self.home, ".claude", "hooks", "context-guard.py")
+
+    def rules_block(self):
+        self.init()
+        text = read(os.path.join(self.home, ".claude", "CLAUDE.md"))
+        return text.split(RULES_START)[1].split(RULES_END)[0]
+
+    def run_hook(self, payload, env_extra=None):
+        self.init()
+        env = dict(os.environ)
+        env.pop("CLAUDE_CONTEXT_GUARD", None)
+        env["HOME"] = self.home
+        env.update(env_extra or {})
+        data = payload if isinstance(payload, str) else json.dumps(payload)
+        return subprocess.run([sys.executable, self.hook_path()], input=data, env=env,
+                              capture_output=True, text=True, timeout=30)
+
+    def transcript(self, tokens, name="t.jsonl"):
+        """Transcript whose last assistant message has `tokens` total context."""
+        path = os.path.join(self.tmp, name)
+        lines = [
+            {"type": "assistant", "message": {"usage": {
+                "input_tokens": 1, "cache_read_input_tokens": 1, "cache_creation_input_tokens": 1}}},
+            {"type": "user", "message": {"content": "hi"}},
+            {"type": "assistant", "message": {"usage": {
+                "input_tokens": 100, "cache_read_input_tokens": tokens - 150,
+                "cache_creation_input_tokens": 50, "output_tokens": 999}}},
+            {"type": "user", "message": {"content": "more"}},
+        ]
+        with open(path, "w") as fh:
+            fh.write("\n".join(json.dumps(x) for x in lines) + "\n")
+        return path
+
+    # rule wording
+    def test_rule_names_ticket_closed_trigger(self):
+        block = self.rules_block()
+        self.assertIn("`/compact`", block)
+        self.assertIn("ticket closes", block)
+
+    def test_rule_names_150k_context_trigger(self):
+        self.assertIn("150k", self.rules_block())
+
+    def test_rule_says_never_poll_running_builder(self):
+        block = self.rules_block()
+        self.assertIn("never poll a running builder", block)
+        self.assertIn("completion notice", block)
+
+    def test_rule_keeps_cost_bullet_text_and_position(self):
+        block = self.rules_block()
+        self.assertIn("parallel saves time, not tokens", block)
+        self.assertIn("Start a builder early in a session", block)
+        self.assertLess(block.find("are always sequential."), block.find("- Cost:"))
+        self.assertLess(block.find("- Cost:"), block.find("- Handoffs carry context"))
+
+    # init writes the hook
+    def test_init_writes_context_guard_hook_file(self):
+        r = self.init()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.isfile(self.hook_path()), "hooks/context-guard.py not written")
+
+    def test_init_dry_run_shows_hook_and_writes_nothing(self):
+        r = self.init("--dry-run")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("context-guard", r.stdout)
+        self.assertEqual(os.listdir(self.home), [])
+
+    def test_init_prints_settings_snippet_for_user_prompt_submit(self):
+        r = self.init()
+        self.assertIn("UserPromptSubmit", r.stdout)
+        self.assertIn("context-guard.py", r.stdout)
+
+    def test_init_does_not_touch_settings_json(self):
+        settings = os.path.join(self.home, ".claude", "settings.json")
+        self.init()
+        self.assertFalse(os.path.exists(settings))
+        os.makedirs(os.path.dirname(settings), exist_ok=True)
+        with open(settings, "w") as fh:
+            fh.write('{"keep": true}\n')
+        self.init("--force")
+        self.assertEqual(read(settings), '{"keep": true}\n')
+
+    # hook behaviour
+    def test_hook_over_threshold_prints_reminder(self):
+        r = self.run_hook({"transcript_path": self.transcript(200000)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("150k", r.stdout)
+        self.assertIn("/compact", r.stdout)
+        self.assertIn("200k", r.stdout)
+        self.assertEqual(len(r.stdout.strip().splitlines()), 1)
+
+    def test_hook_under_threshold_prints_nothing(self):
+        r = self.run_hook({"transcript_path": self.transcript(50000)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def write_lines(self, entries, name="t.jsonl"):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w") as fh:
+            fh.write("\n".join(json.dumps(x) for x in entries) + "\n")
+        return path
+
+    @staticmethod
+    def assistant(tokens, **extra):
+        entry = {"type": "assistant", "message": {"usage": {
+            "input_tokens": 0, "cache_read_input_tokens": tokens, "cache_creation_input_tokens": 0}}}
+        entry.update(extra)
+        return entry
+
+    def test_hook_uses_last_assistant_message_only(self):
+        # a big earlier message (pre-/compact) must not count; only the last one does
+        path = self.write_lines([self.assistant(300000), {"type": "user"}, self.assistant(50000)])
+        self.assertEqual(self.run_hook({"transcript_path": path}).stdout, "")
+        path = self.write_lines([self.assistant(50000), {"type": "user"}, self.assistant(300000)], "u.jsonl")
+        self.assertIn("300k", self.run_hook({"transcript_path": path}).stdout)
+
+    def test_hook_skips_zero_usage_and_sidechain_messages(self):
+        path = self.write_lines([self.assistant(200000), self.assistant(0),
+                                 self.assistant(10, isSidechain=True), {"type": "user"}])
+        self.assertIn("200k", self.run_hook({"transcript_path": path}).stdout)
+
+    def test_hook_reads_large_transcript_from_the_end(self):
+        filler = [{"type": "user", "message": {"content": "x" * 5000}} for _ in range(600)]
+        path = self.write_lines([self.assistant(10)] + filler + [self.assistant(180000)] + filler[:50])
+        r = self.run_hook({"transcript_path": path})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(),
+                         "Context is 180k tokens (> 150k). Finish or close the current ticket, then /compact.")
+
+    def test_init_force_rewrites_hook_but_leaves_foreign_hook_alone(self):
+        self.init()
+        with open(self.hook_path(), "a") as fh:
+            fh.write("# local edit\n")
+        self.init("--force")
+        self.assertNotIn("# local edit", read(self.hook_path()))
+        with open(self.hook_path(), "w") as fh:
+            fh.write("#!/usr/bin/env python3\nprint('mine')\n")
+        r = self.init("--force")
+        self.assertIn("not ours", r.stdout)
+        self.assertEqual(read(self.hook_path()), "#!/usr/bin/env python3\nprint('mine')\n")
+
+    def test_hook_env_override_lowers_threshold(self):
+        r = self.run_hook({"transcript_path": self.transcript(50000)},
+                          {"CLAUDE_CONTEXT_GUARD": "10000"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("/compact", r.stdout)
+
+    def test_hook_env_override_raises_threshold(self):
+        r = self.run_hook({"transcript_path": self.transcript(200000)},
+                          {"CLAUDE_CONTEXT_GUARD": "500000"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_hook_missing_transcript_prints_nothing_exit_0(self):
+        r = self.run_hook({"transcript_path": os.path.join(self.tmp, "nope.jsonl")})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_hook_bad_stdin_json_prints_nothing_exit_0(self):
+        r = self.run_hook("this is not json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_hook_bad_transcript_content_prints_nothing_exit_0(self):
+        path = os.path.join(self.tmp, "bad.jsonl")
+        with open(path, "w") as fh:
+            fh.write("{not json\n\x00garbage\n")
+        r = self.run_hook({"transcript_path": path})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
 
 
 if __name__ == "__main__":

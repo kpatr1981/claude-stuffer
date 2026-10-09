@@ -22,7 +22,7 @@ import os
 import re
 import sys
 
-VERSION = "0.2.5"
+VERSION = "0.2.6"
 
 EXIT_OK, EXIT_ABORT, EXIT_USAGE = 0, 1, 2
 
@@ -185,6 +185,107 @@ NO_TESTS_NOTICE = "No tests: code changes will be routed to the senior and every
 INIT_HINT = ('Default model: set `"model": "claude-opus-5-5"` in ~/.claude/settings.json '
              "or run /model claude-opus-5-5 in a session.\n"
              "Check with claude-stuffer show, or start a new session; agents are loaded at startup.")
+
+# The optional context guard `init` writes to ~/.claude/hooks/context-guard.py. A UserPromptSubmit
+# hook: plain stdout on exit 0 is added to Claude's context. init never edits settings.json; it
+# prints HOOK_SNIPPET for the user to add. The marker comment goes on line 2 (see hook_text).
+HOOK_NAME = "context-guard.py"
+HOOK_BODY = r'''"""context-guard: a Claude Code UserPromptSubmit hook, written by claude-stuffer.
+
+Reads the hook JSON on stdin, finds the last assistant message in transcript_path and sums its
+input + cache_read + cache_creation tokens: the size of the context the model last saw. Past the
+threshold (150000, or env CLAUDE_CONTEXT_GUARD) it prints one reminder line, which Claude Code adds
+to the session's context. Otherwise, and on any error, it prints nothing and exits 0: it never
+blocks a prompt.
+"""
+import json
+import os
+import sys
+
+DEFAULT_THRESHOLD = 150000
+CHUNK = 1 << 20
+USAGE_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+
+
+def threshold():
+    try:
+        value = int(os.environ.get("CLAUDE_CONTEXT_GUARD", ""))
+    except ValueError:
+        return DEFAULT_THRESHOLD
+    return value if value > 0 else DEFAULT_THRESHOLD
+
+
+def lines_backwards(path):
+    """Yield the file's lines last to first, reading from the end in chunks."""
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        pos, rest = fh.tell(), b""
+        while pos > 0:
+            step = min(CHUNK, pos)
+            pos -= step
+            fh.seek(pos)
+            parts = (fh.read(step) + rest).split(b"\n")
+            rest = parts.pop(0)
+            for line in reversed(parts):
+                yield line
+        yield rest
+
+
+def last_context(path):
+    """Context tokens of the last main-thread assistant message with non-zero usage, else 0."""
+    for raw in lines_backwards(path):
+        if b'"assistant"' not in raw:
+            continue
+        try:
+            entry = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict) or entry.get("type") != "assistant" or entry.get("isSidechain"):
+            continue
+        message = entry.get("message")
+        usage = message.get("usage") if isinstance(message, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        try:
+            tokens = sum(int(usage.get(key) or 0) for key in USAGE_KEYS)
+        except (TypeError, ValueError):
+            continue
+        if tokens > 0:  # synthetic messages (API errors, interrupts) carry all-zero usage
+            return tokens
+    return 0
+
+
+def kilo(n):
+    return "%dk" % int(round(n / 1000.0))
+
+
+def main():
+    try:
+        payload = json.loads(sys.stdin.read())
+        path = payload.get("transcript_path") if isinstance(payload, dict) else None
+        if not isinstance(path, str) or not path:
+            return 0
+        tokens, limit = last_context(os.path.expanduser(path)), threshold()
+        if tokens > limit:
+            print("Context is %s tokens (> %s). Finish or close the current ticket, then /compact."
+                  % (kilo(tokens), kilo(limit)))
+    except Exception:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''
+
+HOOK_SNIPPET = """\
+Optional context guard: init does not edit settings.json. To turn the hook on, add this under
+"hooks" in ~/.claude/settings.json (merge with any UserPromptSubmit entries you already have):
+  "UserPromptSubmit": [
+    {"hooks": [{"type": "command", "command": %s}]}
+  ]
+It prints a reminder into the session once the context passes 150k tokens
+(override with env CLAUDE_CONTEXT_GUARD=<tokens>)."""
 
 
 # Ticket folder templates (`claude-stuffer ticket SLUG`).
@@ -399,8 +500,11 @@ RULES = """\
     length of every transcript, because each tool call re-sends the whole transcript so far.
     Agents do not pay for talking to each other; handoffs are one prompt in, one line back.
     So: scouts do lookups, not surveys (one question or a few on the same files, 30 tool calls at
-    most, "how does X work" goes to the builder); `/compact` once
-    a ticket closes so the next task starts from the ticket folder, not the conversation; Opus
+    most, "how does X work" goes to the builder); `/compact` once a ticket closes or once the
+    context passes 150k, whichever comes first, so the next task starts from the ticket folder,
+    not the conversation (the optional `~/.claude/hooks/context-guard.py` hook reminds you);
+    never poll a running builder: wait for its completion notice, background agents report back
+    on their own and every check re-sends the whole transcript; Opus
     (`senior`, `reviewer`) only where judgement is needed. The ladder is for features: a change
     smaller than its spec goes to one `junior` without qa or reviewer, or the architect makes it
     in place, because each handoff is a cold start that re-reads the same files.
@@ -481,6 +585,9 @@ def is_ours(path):
     text = read_text(path)
     m = re.match(r"---\n.*?\n---\n", text, re.S)
     body = text[m.end():] if m else text
+    if body.startswith("#!"):  # a script: the marker is a comment on the line after the shebang
+        body = body.split("\n", 1)[-1]
+        body = body[2:] if body.startswith("# ") else body
     return body.startswith(MARKER_PREFIX)
 
 
@@ -768,6 +875,16 @@ def bench_text(name):
     m = re.match(r"(---\n.*?\n---\n)(.*)", BENCH[name], re.S)
     body = re.sub(r"(?m)^<!-- generated by claude-stuffer on .*?-->\n?", "", m.group(2))
     return m.group(1) + marker_line() + "\n" + body
+
+
+def hook_snippet(hook):
+    """The settings.json lines that turn the hook on; the path is quoted for the shell."""
+    return HOOK_SNIPPET % json.dumps('python3 "%s"' % hook)
+
+
+def hook_text():
+    """The context-guard script, with the generated-by marker as a comment under the shebang."""
+    return "#!/usr/bin/env python3\n# " + marker_line() + "\n" + HOOK_BODY
 
 
 # --------------------------------------------------------------------------
@@ -1114,14 +1231,20 @@ def cmd_init(args):
     claude = os.path.join(stuffer_home(), ".claude")
     agents = os.path.join(claude, "agents")
     actions = [plan_file(os.path.join(agents, n + ".md"), bench_text(n), args.force) for n in BENCH_NAMES]
+    hook = os.path.join(claude, "hooks", HOOK_NAME)
+    actions.append(plan_file(hook, hook_text(), args.force))
     actions.append(claude_md_action(os.path.join(claude, "CLAUDE.md"), "# Global instructions",
                                     RULES_START, RULES_END, RULES))
     print(describe(actions, dry_run=args.dry_run))
     if args.dry_run:
         print("Dry run: nothing written.")
+        print(hook_snippet(hook))
         return EXIT_OK
     apply(actions)
+    if os.path.isfile(hook) and not os.path.islink(hook) and is_ours(hook):
+        os.chmod(hook, 0o755)
     print(INIT_HINT)
+    print(hook_snippet(hook))
     return EXIT_OK
 
 
