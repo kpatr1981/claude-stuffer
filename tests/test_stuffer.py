@@ -252,10 +252,10 @@ class TestCli(Base):
             for role in roles:
                 self.assertIn(role, r.stdout)
 
-    def test_version_prints_0_2_3(self):
+    def test_version_prints_0_2_4(self):
         r = run(["--version"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("0.2.3", r.stdout + r.stderr)
+        self.assertIn("0.2.4", r.stdout + r.stderr)
 
     def test_help_mentions_ticket(self):
         r = run(["--help"])
@@ -367,6 +367,16 @@ class TestGeneration(Base):
         for name in ("cli-developer", "ksh-engineer"):
             self.assertIn("Keep long output out of your transcript",
                           read(agent_path(self.project, name)), name)
+
+    def test_read_ranges_sentence_in_senior_and_staffed_writer(self):
+        r = run(["init"], cwd=self.tmp, home=self.home)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        senior = read(os.path.join(self.home, ".claude", "agents", "senior.md"))
+        self.assertIn("Read the lines you need, not whole files", senior)
+        self.go_project()
+        self.staff(self.full_answers())
+        self.assertIn("Read the lines you need, not whole files",
+                      read(agent_path(self.project, "cli-developer")))
 
     def test_agent_body_has_marker_docs_stack_tests_and_failure_protocol(self):
         self.go_project()

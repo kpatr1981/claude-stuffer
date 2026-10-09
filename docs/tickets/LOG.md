@@ -9,3 +9,4 @@
 | 2026-10-10 | cost-rule | mid (Sonnet); tests by qa (Sonnet) | none | reviewer PASS first pass; version 0.2.1; global CLAUDE.md block refreshed with `init`; article republished |
 | 2026-10-10 | scout-lookup | mid (Sonnet); tests by qa (Sonnet) | none | reviewer PASS first pass; version 0.2.2; bench refreshed with `init --force`; article republished |
 | 2026-10-10 | lean-agents | mid (Sonnet); tests by qa (Sonnet) | builder BLOCKED on a wrong test expectation that was the architect's (reviewer tool list); architect fixed one string | reviewer PASS first pass; version 0.2.3; bench refreshed with `init --force`; drop64 role files given tools lines by hand; article republished |
+| 2026-10-10 | read-ranges | junior (Haiku); no qa/reviewer (one-sentence chore) | none | junior PASS, 96 tests OK; version 0.2.4; bench refreshed; drop64 role files given the output paragraph by hand |
