@@ -255,7 +255,7 @@ class TestCli(Base):
     def test_version_prints_0_2_6(self):
         r = run(["--version"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("0.2.6", r.stdout + r.stderr)
+        self.assertIn("0.2.7", r.stdout + r.stderr)
 
     def test_help_mentions_ticket(self):
         r = run(["--help"])
@@ -577,6 +577,13 @@ class TestInit(Base):
         text = read(os.path.join(self.agents_dir(), "scout.md"))
         self.assertIn("at most 30 tool calls", text)
         self.assertIn("Not reached", text)
+
+    def test_init_scout_bench_file_caps_greps_and_skips_git(self):
+        r = self.init()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = read(os.path.join(self.agents_dir(), "scout.md"))
+        self.assertIn("head_limit 50", text)
+        self.assertIn("Never read anything under .git/", text)
 
     def test_init_rules_block_says_lookups_not_surveys(self):
         block = self._rules_block()

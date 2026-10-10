@@ -23,7 +23,7 @@ Four roles sit beside the ladder:
 |------|-------|------|
 | `reviewer` | Senior, no code edits | Checks a finished change against its spec and tests. PASS or FAIL with reasons. Writes only `review.md`. |
 | `qa` | Mid | Writes the tests from the spec before anyone builds. |
-| `scout` | Junior, no code edits | Looks things up for the architect: which files a change touches, which tests cover them, where a symbol is used. Lookups, not surveys: at most 30 tool calls, writes `scout.md` as it goes. "How does X work" goes to the builder. |
+| `scout` | Junior, no code edits | Looks things up for the architect: which files a change touches, which tests cover them, where a symbol is used. Lookups, not surveys: at most 30 tool calls, narrow greps (files first, at most 50 lines), never reads `.git/`, writes `scout.md` as it goes. "How does X work" goes to the builder. |
 | `pm` | Mid | Keeps the backlog and the ticket log, grooms items until ticket-ready, writes status. No code, no priorities. |
 
 Rules the architect follows, installed by `init`:

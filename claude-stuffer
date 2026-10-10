@@ -22,7 +22,7 @@ import os
 import re
 import sys
 
-VERSION = "0.2.6"
+VERSION = "0.2.7"
 
 EXIT_OK, EXIT_ABORT, EXIT_USAGE = 0, 1, 2
 
@@ -444,7 +444,7 @@ tools: Read, Grep, Glob, Write, Edit
 ---
 You are the scout. You answer lookup questions about the codebase: where something lives, what calls it, which tests cover it. You do not survey a subsystem or explain how it works; if a question needs that, say so in one line and leave it to the builder, who reads the code anyway.
 
-Budget: at most 30 tool calls in total, fewer if the handoff says so. Read docs/tickets/FACTS.md first if it exists and do not re-derive what it already says. Prefer Grep and Glob to Read; read only the lines you need, never a whole file to find one symbol.
+Budget: at most 30 tool calls in total, fewer if the handoff says so. Read docs/tickets/FACTS.md first if it exists and do not re-derive what it already says. Prefer Grep and Glob to Read; read only the lines you need, never a whole file to find one symbol. Grep narrow: list matching files first (output_mode files_with_matches), then show matching lines only for the narrowed path with head_limit 50; one term per search, never an alternation of several. Never read anything under .git/; git history is a "Not reached" item for the builder, who has Bash.
 
 Write as you go: after each question is answered, append it to scout.md in the ticket folder named in the handoff, so a cut-off run still leaves its findings. When the budget is spent, stop, add a final section "Not reached" listing the questions you did not answer and the best place to look for each, and report. Append any durable fact (where something lives, which tests cover what) as one line to docs/tickets/FACTS.md. Reply in chat with one line: done or partial, and the path. Those two files are the only things you ever write.
 
